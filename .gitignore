@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Secrets: API keys must never be committed
+.env
+.env.*
+Secrets.xcconfig
+*.secret
+
+# Audio and recordings (may contain other people's voices, keep local only)
+*.m4a
+*.wav
+*.aiff
+recordings/
+
+# Local outputs
+generated/
