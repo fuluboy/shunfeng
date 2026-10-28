@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import ShunfengCore
 import UserNotifications
@@ -68,8 +69,20 @@ final class ListenerModel: ObservableObject {
             return
         }
         state = .connecting
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        Task {
+            // Ask for permissions before opening the stream. The server drops a stream whose audio falls
+            // behind real time, and a permission dialog would stall the audio for as long as it is open.
+            guard await AVAudioApplication.requestRecordPermission() else {
+                state = .failed("需要麥克風權限才能聽廣播。請到「設定 → 隱私權與安全性 → 麥克風」打開 Shunfeng。")
+                return
+            }
+            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            guard state == .connecting else { return }   // the user pressed stop meanwhile
+            connect(apiKey: key)
+        }
+    }
 
+    private func connect(apiKey key: String) {
         let transcriber = RealtimeTranscriber(apiKey: key)
         self.transcriber = transcriber
         // One sender task keeps audio chunks in order.
@@ -84,7 +97,10 @@ final class ListenerModel: ObservableObject {
         Task { [weak self] in
             do {
                 try await transcriber.start { event in
-                    Task { @MainActor in self?.handle(event) }
+                    // Ignore late events from a connection that was already replaced.
+                    Task { @MainActor in
+                        if self?.transcriber === transcriber { self?.handle(event) }
+                    }
                 }
                 try self?.audio.start(
                     onChunk: { continuation.yield($0) },
@@ -95,6 +111,13 @@ final class ListenerModel: ObservableObject {
                 self?.stop()
             }
         }
+    }
+
+    /// Called by the stop button: also forgets reconnect history.
+    func userStop() {
+        reconnects = []
+        stop()
+        state = .idle
     }
 
     func stop() {
@@ -118,15 +141,36 @@ final class ListenerModel: ObservableObject {
             partial = ""
             if !text.trimmingCharacters(in: .whitespaces).isEmpty { take(text) }
         case .error(let message):
-            state = .failed("語音辨識錯誤：\(message)")
+            // Usually the audio fell behind real time (a call, a Siri prompt, a network hiccup).
+            // Reconnect instead of making the user notice and press start again.
+            lastError = message
+            reconnect()
         case .closed:
             // Sessions end after 60 minutes or on network trouble; keep listening if the user didn't stop.
-            if state == .listening {
-                stop()
-                start()
-            }
+            if state == .listening || state == .connecting { reconnect() }
         case .speechStarted:
             break
+        }
+    }
+
+    private var lastError: String?
+    private var reconnects: [Date] = []
+
+    private func reconnect() {
+        guard transcriber != nil else { return }   // already stopped by the user
+        reconnects = reconnects.filter { Date().timeIntervalSince($0) < 60 } + [Date()]
+        stop()
+        // Give up after repeated failures in one minute and say so: never pretend to be listening.
+        guard reconnects.count <= 3 else {
+            state = .failed("收音連線一直中斷（\(lastError ?? "連線關閉")）。請確認網路後再按一次開始。")
+            return
+        }
+        state = .connecting
+        Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard state == .connecting,
+                  let key = Bundle.main.object(forInfoDictionaryKey: "MetaAPIKey") as? String else { return }
+            connect(apiKey: key)
         }
     }
 

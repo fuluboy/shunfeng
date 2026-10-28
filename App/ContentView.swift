@@ -49,7 +49,7 @@ struct ContentView: View {
 
     private var listenButton: some View {
         Button {
-            if model.state == .idle || isFailed { model.start() } else { model.stop() }
+            if model.state == .idle || isFailed { model.start() } else { model.userStop() }
         } label: {
             Label(model.state == .idle || isFailed ? "開始聆聽廣播" : "停止",
                   systemImage: model.state == .idle || isFailed ? "ear" : "stop.fill")
