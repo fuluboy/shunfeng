@@ -270,6 +270,12 @@ final class ListenerModel: ObservableObject {
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
+    /// Lets the user learn the vibration language, and check that vibration works at all.
+    func tryVibration(_ event: AnnouncementEvent?) {
+        if let event { haptics.confirmed(event) } else { haptics.maybe() }
+        EventLog.write("try_vibration", ["event": event?.rawValue ?? "maybe"])
+    }
+
     // MARK: - Wording
 
     static func headline(for r: AnnouncementReading) -> String {

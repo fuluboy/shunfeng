@@ -11,6 +11,9 @@ final class AudioCapture {
         // .record keeps the mic on in the background (with the audio background mode); a wired or
         // USB-C lavalier mic becomes the input automatically.
         try session.setCategory(.record, mode: .default, options: [.allowBluetoothHFP])
+        // iOS mutes all vibration and system sounds while an app records, so the mic doesn't pick them up.
+        // For a deaf user the vibration *is* the alert, so it has to stay on (found in the first phone test).
+        try session.setAllowHapticsAndSystemSoundsDuringRecording(true)
         try session.setActive(true)
 
         let input = engine.inputNode
