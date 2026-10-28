@@ -28,6 +28,8 @@ struct Heard: Identifiable {
     var acknowledged = false
     /// A later version of the same news named this other gate (Japanese said 141, English only "one").
     var conflictingGate: String?
+    /// What Taoyuan's live flight data says about it, when the flight is in the data.
+    var verification: Verification?
 }
 
 @MainActor
@@ -48,8 +50,19 @@ final class ListenerModel: ObservableObject {
             guard flightCode != oldValue else { return }
             UserDefaults.standard.set(flightCode, forKey: "flightCode")
             atGate = false
+            flight = nil
+            flightDataMessage = nil
         }
     }
+    /// The user's flight in Taoyuan's live data (nil when not found, e.g. flights from other airports).
+    @Published var flight: ADIPFlight?
+    @Published var flightDataTime: Date?
+    /// Why there is no flight data, shown instead of the flight card.
+    @Published var flightDataMessage: String?
+    /// A change in the flight data that may not have been announced (or that the microphone missed).
+    @Published var dataNotice: (text: String, time: Date)?
+    private var refresher: Task<Void, Never>?
+
     /// The user said they are already at the gate: boarding calls are then logged quietly instead of
     /// repeating, so the last minutes before boarding aren't full of buzzing. A gate change, delay or
     /// cancellation clears it, because then they may need to move.
@@ -122,8 +135,72 @@ final class ListenerModel: ObservableObject {
                 "lock_screen": on(settings.lockScreenSetting), "time_sensitive": on(settings.timeSensitiveSetting),
             ])
             guard state == .connecting else { return }   // the user pressed stop meanwhile
+            await refreshFlightData(alertOnChange: false)
+            guard state == .connecting else { return }
             connect(apiKey: key)
+            // The data is updated every 5 minutes; follow it while listening.
+            refresher?.cancel()
+            refresher = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 300_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    await self?.refreshFlightData(alertOnChange: true)
+                }
+            }
         }
+    }
+
+    // MARK: - Flight data (Taoyuan ADIP)
+
+    /// Looks the user's flight up in Taoyuan's live data. Fills in an empty destination, re-checks what
+    /// was already heard, and with `alertOnChange` warns about gate or status changes in the data itself.
+    func refreshFlightData(alertOnChange: Bool) async {
+        let code = flightCode
+        guard !code.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        do {
+            let flights = try await ADIP.fetch()
+            flightDataTime = Date()
+            guard let found = ADIP.find(code, in: flights) else {
+                flight = nil
+                flightDataMessage = "桃園機場今天的航班資料裡找不到 \(code)。目前只能核對桃園的航班，廣播判讀照常運作。"
+                EventLog.write("adip", ["flight": code, "found": false])
+                return
+            }
+            flightDataMessage = nil
+            if destination.isEmpty { destination = found.placeZh }
+            if alertOnChange, let old = flight, old.code == found.code {
+                for change in Verification.changes(from: old, to: found) { dataChanged(change) }
+            }
+            flight = found
+            for i in heard.indices where heard[i].certainty != .notYours {
+                applyVerification(to: &heard[i])
+            }
+            EventLog.write("adip", ["flight": found.code, "found": true, "gate": found.gate ?? "", "status": found.status,
+                                    "estimated": found.estimated, "codeshares": found.codeshares.joined(separator: ",")])
+        } catch {
+            flightDataMessage = "暫時拿不到航班資料（\(error.localizedDescription)），廣播判讀照常運作。"
+            EventLog.write("adip_failed", ["error": error.localizedDescription])
+        }
+    }
+
+    private func dataChanged(_ change: Verification.DataChange) {
+        let text: String
+        switch change {
+        case .gate(_, let to): text = "航班資料：登機門改到 \(to)"
+        case .status(_, let to): text = "航班資料：班機狀態變成「\(to)」"
+        }
+        dataNotice = (text, Date())
+        haptics.play(.change)
+        notify(title: text, body: "這是機場航班資料的變化，廣播可能沒聽到。請看大螢幕確認。")
+        EventLog.write("adip_change", ["text": text])
+    }
+
+    /// Checks a heard item against the flight data. A disagreeing gate is marked uncertain on the card.
+    private func applyVerification(to item: inout Heard) {
+        guard let flight else { return }
+        let v = Verification.check(item.reading, against: flight)
+        item.verification = v
+        if case .disagrees = v.gate { item.reading.gateIsCertain = false }
     }
 
     private func connect(apiKey key: String) {
@@ -168,6 +245,7 @@ final class ListenerModel: ObservableObject {
     /// Called by the stop button: also forgets reconnect history.
     func userStop() {
         reconnects = []
+        refresher?.cancel()
         stop()
         state = .idle
     }
@@ -331,7 +409,8 @@ final class ListenerModel: ObservableObject {
             return
         }
 
-        let item = Heard(time: Date(), original: text, reading: reading, certainty: certainty, note: note)
+        var item = Heard(time: Date(), original: text, reading: reading, certainty: certainty, note: note)
+        if certainty != .notYours { applyVerification(to: &item) }
         EventLog.write("heard", ["text": text, "flight": reading.flight ?? "", "event": reading.event?.rawValue ?? "",
                                  "gate": reading.gate ?? "", "time_said": reading.time ?? "",
                                  "certainty": "\(certainty)", "note": note ?? ""])
@@ -343,7 +422,7 @@ final class ListenerModel: ObservableObject {
         switch item.certainty {
         case .sure:
             let event = item.reading.event
-            let title = Self.headline(for: item.reading)
+            let title = Self.headline(for: item)
             let boardingCall = [.boarding, .finalCall].contains(event)
             if atGate && boardingCall {
                 // Already at the gate: note it without buzzing or repeating.
@@ -423,6 +502,17 @@ final class ListenerModel: ObservableObject {
     /// The gate as shown in a headline; an uncertain one says so instead of looking definite.
     private static func gate(_ r: AnnouncementReading) -> String? {
         r.gate.map { r.gateIsCertain ? $0 : "\($0)（待確認）" }
+    }
+
+    /// Headline for a card or notification: when the gate wasn't heard but the flight data has one,
+    /// it is shown and labelled as coming from the data.
+    static func headline(for item: Heard) -> String {
+        var r = item.reading
+        if r.gate == nil, case .fromData(let g)? = item.verification?.gate {
+            r.gate = "\(g)（航班資料）"
+            r.gateIsCertain = true
+        }
+        return headline(for: r)
     }
 
     static func headline(for r: AnnouncementReading) -> String {

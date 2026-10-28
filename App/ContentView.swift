@@ -11,6 +11,7 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     flightSetup
+                    FlightDataView(flight: model.flight, updated: model.flightDataTime, message: model.flightDataMessage)
                     listenButton
                     vibrationMenu
                     statusLine
@@ -22,6 +23,17 @@ struct ContentView: View {
                             Button("取消") { model.atGate = false }
                         }
                         .font(.callout)
+                    }
+                    if let notice = model.dataNotice {
+                        Label {
+                            VStack(alignment: .leading) {
+                                Text(notice.text).bold()
+                                Text("這是機場航班資料的變化，廣播可能沒聽到。請看大螢幕確認。").font(.footnote)
+                            }
+                        } icon: { Image(systemName: "airplane.circle.fill") }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                     }
                     if let item = model.latestSure {
                         AlertCard(item: item, atGate: model.atGate, answer: { model.answer($0, heardID: $1) }) { showingStaffCard = true }
@@ -54,6 +66,8 @@ struct ContentView: View {
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
+                .submitLabel(.search)
+                .onSubmit { Task { await model.refreshFlightData(alertOnChange: false) } }
             TextField("目的地，例如 東京", text: $model.destination)
                 .textFieldStyle(.roundedBorder)
         }
@@ -139,13 +153,13 @@ struct AlertCard: View {
                 Text(item.time, style: .time).font(.caption).foregroundStyle(.secondary)
             }
             if item.certainty == .sure {
-                Text(ListenerModel.headline(for: item.reading))
+                Text(ListenerModel.headline(for: item))
                     .font(.system(size: 34, weight: .bold))
             } else {
                 // Don't shout "Final call!" when we are not sure it is the user's flight.
                 Text("可能跟你有關，請確認")
                     .font(.system(size: 28, weight: .bold))
-                Text("廣播內容：\(ListenerModel.headline(for: item.reading))")
+                Text("廣播內容：\(ListenerModel.headline(for: item))")
                     .font(.title3)
             }
             if let note = item.note {
@@ -155,6 +169,7 @@ struct AlertCard: View {
                 Label("把手機拿在手上、朝向廣播喇叭，下一次廣播會聽得更清楚。", systemImage: "iphone.radiowaves.left.and.right")
                     .font(.callout)
             }
+            if let v = item.verification { VerificationView(verification: v) }
             if let other = item.conflictingGate {
                 Label("前後兩次廣播聽到不同的登機門（\(item.reading.gate ?? "?") 和 \(other)），請看大螢幕確認。",
                       systemImage: "exclamationmark.triangle.fill")
@@ -236,5 +251,68 @@ struct StaffCard: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.yellow.opacity(0.25))
+    }
+}
+
+/// The user's flight as Taoyuan's live data shows it.
+struct FlightDataView: View {
+    let flight: ADIPFlight?
+    let updated: Date?
+    let message: String?
+
+    var body: some View {
+        if let f = flight {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("\(f.code) → \(f.placeZh) \(f.placeEn)").font(.headline)
+                    Spacer()
+                    Text(f.status).font(.subheadline.bold())
+                }
+                Text("\(f.terminal)・登機門 \(f.gate ?? "未定")・表定 \(f.scheduled.suffix(5))" +
+                     (f.estimated != f.scheduled ? "（預計 \(f.estimated.suffix(5))）" : ""))
+                if let progress = f.progress { Text(progress).font(.subheadline) }
+                if !f.codeshares.isEmpty {
+                    Text("共享班號：\(f.codeshares.joined(separator: "、"))").font(.caption).foregroundStyle(.secondary)
+                }
+                if let updated {
+                    Text("桃園機場航班資料・\(updated, style: .time) 更新（每 5 分鐘）").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        } else if let message {
+            Text(message).font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// How an announcement compares with the flight data. Disagreement is shown, never hidden.
+struct VerificationView: View {
+    let verification: Verification
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch verification.gate {
+            case .agrees(let g):
+                Label("航班資料也是 \(g)", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            case .fromData(let g):
+                Label("廣播沒聽清楚登機門，航班資料顯示 \(g)", systemImage: "airplane.circle")
+            case .disagrees(let heard, let data):
+                Label("廣播說 \(heard)，航班資料是 \(data)。廣播通常比資料早更新，請看大螢幕確認。",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            case .unknown:
+                EmptyView()
+            }
+            switch verification.status {
+            case .agrees:
+                Label("航班資料也顯示了這個變化", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            case .notYetInData(let status):
+                Label("航班資料還沒更新（目前顯示「\(status)」）", systemImage: "clock")
+            case .notApplicable:
+                EmptyView()
+            }
+        }
+        .font(.callout)
     }
 }
