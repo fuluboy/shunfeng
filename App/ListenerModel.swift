@@ -179,8 +179,11 @@ final class ListenerModel: ObservableObject {
             state = .listening
         case .partial(let text):
             partial = text
-        case .turnComplete(_, let text):
+        case .turnComplete(let turn, let text):
             partial = ""
+            // Every turn goes in the log, including general info the app ignores, so real-airport
+            // recordings can be checked by hand against what was actually announced.
+            EventLog.write("turn", ["turn": turn, "text": text])
             if !text.trimmingCharacters(in: .whitespaces).isEmpty { take(text) }
         case .error(let message):
             // Usually the audio fell behind real time (a call, a Siri prompt, a network hiccup).
