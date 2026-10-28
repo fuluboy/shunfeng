@@ -20,12 +20,38 @@ public enum Normalizer {
         return Dictionary(uniqueKeysWithValues: zip(simplified, traditional))
     }()
 
-    /// Airline names that tell us the code when the letters themselves get lost.
+    /// Airline names that tell us the code. Taoyuan announcements often say the code ("CI100"), but the
+    /// recognizer loses the letters; Haneda announcements never say codes at all, only names:
+    /// "日本航空8261便", "Japan Airlines flight eight two six one" (heard in a real recording).
     static let airlines: [(name: String, code: String)] = [
-        ("中華航空", "CI"), ("華航", "CI"), ("長榮航空", "BR"), ("長榮", "BR"), ("星宇航空", "JX"),
-        ("新宇航空", "JX"), ("國泰航空", "CX"), ("澳門航空", "NX"), ("China Airlines", "CI"),
-        ("EVA Air", "BR"), ("Eva Air", "BR"), ("Starlux", "JX"), ("Cathay Pacific", "CX"),
+        ("中華航空", "CI"), ("華航", "CI"), ("China Airlines", "CI"), ("チャイナエアライン", "CI"),
+        ("長榮航空", "BR"), ("長榮", "BR"), ("EVA Air", "BR"), ("Eva Air", "BR"), ("エバー航空", "BR"),
+        ("星宇航空", "JX"), ("新宇航空", "JX"), ("Starlux", "JX"), ("スターラックス", "JX"),
+        ("國泰航空", "CX"), ("Cathay Pacific", "CX"), ("キャセイパシフィック", "CX"), ("澳門航空", "NX"),
+        ("日本航空", "JL"), ("Japan Airlines", "JL"), ("JAL", "JL"),
+        ("全日空", "NH"), ("全日本空輸", "NH"), ("All Nippon Airways", "NH"), ("ANA", "NH"),
+        ("中國東方航空", "MU"), ("東方航空", "MU"), ("China Eastern Airlines", "MU"), ("China Eastern", "MU"),
+        ("上海航空", "FM"), ("Shanghai Airlines", "FM"),
+        ("中國國際航空", "CA"), ("Air China", "CA"),
+        ("大韓航空", "KE"), ("Korean Air", "KE"), ("アシアナ航空", "OZ"), ("Asiana Airlines", "OZ"),
+        ("新加坡航空", "SQ"), ("Singapore Airlines", "SQ"), ("ピーチ", "MM"), ("Peach", "MM"),
+        ("Delta", "DL"), ("United", "UA"), ("American Airlines", "AA"),
     ]
+
+    /// "<airline name> [flight] 8261 [便/班]" → "<airline name> JL8261". Longest names first, so
+    /// "China Eastern Airlines" wins over "China Eastern". Each number takes the airline named right
+    /// before it, which matters for codeshare lists ("Shanghai Airlines 896, China Eastern 8634, ...").
+    static let airlineNumber: Pattern = {
+        let names = airlines.map(\.name).sorted { $0.count > $1.count }
+            .map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+        // Case-sensitive with a letter boundary, so "ANA" or "United" can't match inside other words.
+        return Pattern("(?<![A-Za-z])(\(names))\\s*(?:[Ff]light\\s*)?(?:[Nn]o\\.?\\s*)?(\\d{1,4})(?!\\d)")
+    }()
+
+    /// "flight eight two six one" → "flight 8261", "gate one four one" → "gate 141".
+    static let spokenDigitsAfterKeyword = Pattern(
+        "\\b(flight|gate)\\s+((?:zero|oh|one|two|three|four|five|six|seven|eight|nine)(?:[\\s-]+(?:zero|oh|one|two|three|four|five|six|seven|eight|nine))*)\\b",
+        caseInsensitive: true)
 
     /// Characters the recognizer writes when it hears the letters "C I".
     static let ciSounds = "此自子词詞四慈辭字"
@@ -33,9 +59,11 @@ public enum Normalizer {
     static let stutter = Pattern(#"([^\x00-\x7f]{2,6})\1+"#)
     static let ciBeforeNumber = Pattern("[\(ciSounds)](?=\\s*(?:[一二兩三四五六七八九][百千]|\\d{2,4}))")
     static let chineseNumber = Pattern("[零一二兩三四五六七八九十百千]+")
-    static let chineseFlightNumber = Pattern("[零一二三四五六七八九十]{2,3}(?=\\s*班)")
+    static let chineseFlightNumber = Pattern("[零一二三四五六七八九十]{2,3}(?=\\s*[班便])")
+    // Gate numbers in words: Japanese "四十七番搭乗口", Chinese "十二號登機門".
+    static let chineseGateNumber = Pattern("[零一二三四五六七八九十]{1,3}(?=\\s*(?:番|號\\s*登機門))")
     static let arabicClock = Pattern(#"(上午|早上|中午|下午|晚上)?\s*(\d{1,2})\s*點\s*(?:(\d{1,2})\s*分)?"#)
-    static let bareFlightNumber = Pattern("(?<![A-Z0-9])(?:[\(ciSounds)]|[A-Z](?![A-Z]))?\\s*(\\d{2,4})(?=\\s*(?:班|飛|維持|改|前往))")
+    static let bareFlightNumber = Pattern("(?<![A-Z0-9])(?:[\(ciSounds)]|[A-Z](?![A-Z]))?\\s*(\\d{2,4})(?=\\s*(?:班|便|飛|維持|改|前往))")
 
     static func asrCleanup(_ text: String) -> String {
         var t = String(text.map { simplifiedToTraditional[$0] ?? $0 })
@@ -43,10 +71,19 @@ public enum Normalizer {
         t = ciBeforeNumber.replace(in: t, template: "CI")               // 此一百 → CI一百
         t = chineseNumber.replace(in: t) { g in chineseHundreds(g[0]!) } // 一百一十 → 110
         t = chineseFlightNumber.replace(in: t) { g in String(chineseSmallNumber(g[0]!)) } // 五十七班 → 57班
+        t = chineseGateNumber.replace(in: t) { g in String(chineseSmallNumber(g[0]!)) }   // 四十七番 → 47番
         t = arabicClock.replace(in: t) { g in                           // 15 點 20 分 → 15:20
             var hour = Int(g[2]!)!
             if let period = g[1], ["下午", "晚上"].contains(period), hour < 12 { hour += 12 }
             return String(format: "%02d:%02d", hour, Int(g[3] ?? "0") ?? 0)
+        }
+        t = spokenDigitsAfterKeyword.replace(in: t) { g in              // flight eight two six one → flight 8261
+            g[1]! + " " + g[2]!.split(whereSeparator: { $0 == " " || $0 == "-" })
+                .map { $0.lowercased() == "oh" ? "0" : (digitWords[$0.lowercased()] ?? "") }.joined()
+        }
+        let codeOf = Dictionary(airlines.map { ($0.name.lowercased(), $0.code) }, uniquingKeysWith: { a, _ in a })
+        t = airlineNumber.replace(in: t) { g in                         // 日本航空8261便 → 日本航空 JL8261便
+            "\(g[1]!) \(codeOf[g[1]!.lowercased()] ?? "")\(g[2]!)"
         }
         // Put the airline code back on numbers that lost it ("華航 自一百班機" → "CI100班機").
         let mentioned = airlines.compactMap { a in t.range(of: a.name).map { (pos: $0.lowerBound, code: a.code) } }
@@ -66,7 +103,13 @@ public enum Normalizer {
         guard s.contains("百") || s.contains("千") else { return s }
         let chars = Array(s)
         var i = 0, value = 0
+        // "百四十一" (Japanese gate 141) has no digit before 百, which means one hundred.
         func digit(followedBy unit: Character) -> Int? {
+            // Only inside a longer number, so a lone 千 (千葉) or 百 (百貨) stays a word.
+            if chars.count > 1, i < chars.count, chars[i] == unit {
+                i += 1
+                return 1
+            }
             guard i + 1 < chars.count, let d = digitValue[chars[i]], chars[i + 1] == unit else { return nil }
             i += 2
             return d

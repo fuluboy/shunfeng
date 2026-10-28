@@ -18,8 +18,8 @@ enum Certainty {
 struct Heard: Identifiable {
     let id = UUID()
     let time: Date
-    let original: String
-    let reading: AnnouncementReading
+    var original: String
+    var reading: AnnouncementReading
     let certainty: Certainty
     let note: String?
     /// How many times this same news has been heard (Mandarin and English versions agree).
@@ -184,7 +184,20 @@ final class ListenerModel: ObservableObject {
             // Every turn goes in the log, including general info the app ignores, so real-airport
             // recordings can be checked by hand against what was actually announced.
             EventLog.write("turn", ["turn": turn, "text": text])
-            if !text.trimmingCharacters(in: .whitespaces).isEmpty { take(text) }
+            guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { break }
+            // The recognizer can split one announcement into turns: at Haneda "日本航空8261便…最終案内" came
+            // first and "百四十一番ゲート…" a few seconds later. A turn that names no flight, right after one
+            // that did, belongs to it.
+            if let last = lastTurn, Date().timeIntervalSince(last.at) < 8,
+               AnnouncementRules.flights(in: Normalizer.normalize(text)).isEmpty,
+               !AnnouncementRules.flights(in: Normalizer.normalize(last.text)).isEmpty {
+                let combined = last.text + " " + text
+                lastTurn = (combined, Date())
+                merge(combined)
+            } else {
+                lastTurn = (text, Date())
+                take(text)
+            }
         case .error(let message):
             // Usually the audio fell behind real time (a call, a Siri prompt, a network hiccup).
             // Reconnect instead of making the user notice and press start again.
@@ -197,6 +210,27 @@ final class ListenerModel: ObservableObject {
             if state == .listening || state == .connecting { reconnect() }
         case .speechStarted:
             break
+        }
+    }
+
+    private var lastTurn: (text: String, at: Date)?
+
+    /// A follow-up turn completed an announcement already shown: update that card (for example with the
+    /// gate) instead of treating the fragment as news of its own.
+    private func merge(_ combined: String) {
+        let reading = AnnouncementRules.read(combined, myFlight: flightCode)
+        guard let i = heard.firstIndex(where: { $0.reading.flight == reading.flight && $0.reading.event == reading.event
+            && Date().timeIntervalSince($0.time) < 60 }) else {
+            take(combined)
+            return
+        }
+        let gainedGate = heard[i].reading.gate == nil && reading.gate != nil
+        heard[i].reading = reading
+        heard[i].original = combined
+        EventLog.write("turn_merged", ["text": combined, "gate": reading.gate ?? ""])
+        if gainedGate && heard[i].certainty == .sure {
+            notify(title: Self.headline(for: reading), body: combined, heardID: heard[i].id,
+                   urgent: [.boarding, .finalCall].contains(reading.event))
         }
     }
 
@@ -356,7 +390,7 @@ final class ListenerModel: ObservableObject {
         case .delay: return r.time.map { "班機延誤，新時間 \($0)" } ?? "班機延誤"
         case .timeChange: return r.time.map { "起飛提前到 \($0)！" } ?? "起飛時間提前！"
         case .boarding: return r.gate.map { "開始登機・\($0) 登機門" } ?? "開始登機"
-        case .finalCall: return "最後登機廣播！"
+        case .finalCall: return r.gate.map { "最後登機！\($0) 號登機門" } ?? "最後登機廣播！"
         case .cancel: return "班機取消"
         case .nameCall: return "廣播在找人，可能是你"
         case .info, nil: return "有一則廣播提到你的班號"
