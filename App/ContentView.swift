@@ -108,8 +108,16 @@ struct AlertCard: View {
                 Spacer()
                 Text(item.time, style: .time).font(.caption).foregroundStyle(.secondary)
             }
-            Text(ListenerModel.headline(for: item.reading))
-                .font(.system(size: 34, weight: .bold))
+            if item.certainty == .sure {
+                Text(ListenerModel.headline(for: item.reading))
+                    .font(.system(size: 34, weight: .bold))
+            } else {
+                // Don't shout "Final call!" when we are not sure it is the user's flight.
+                Text("可能跟你有關，請確認")
+                    .font(.system(size: 28, weight: .bold))
+                Text("廣播內容：\(ListenerModel.headline(for: item.reading))")
+                    .font(.title3)
+            }
             if let note = item.note {
                 Text(note)
             }
