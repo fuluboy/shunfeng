@@ -6,6 +6,19 @@ import Foundation
 import ShunfengCore
 
 let args = CommandLine.arguments
+
+// shunfeng-listen flight <code>...: look flights up in Taoyuan's live data (no API key needed).
+if args.count >= 3, args[1] == "flight" {
+    let flights = try await ADIP.fetch()
+    print("ADIP: \(flights.count) flights")
+    for code in args.dropFirst(2) {
+        guard let f = ADIP.find(code, in: flights) else { print("\(code): not in today's data"); continue }
+        print("\(f.code) \(f.kind == .departure ? "→" : "←") \(f.placeZh) \(f.placeEn) | \(f.terminal) gate \(f.gate ?? "-") | "
+              + "scheduled \(f.scheduled) estimated \(f.estimated) | \(f.status) \(f.progress ?? "") | codeshares \(f.codeshares)")
+    }
+    exit(0)
+}
+
 guard args.count == 3, let apiKey = ProcessInfo.processInfo.environment["META_API_KEY"] else {
     FileHandle.standardError.write(Data("usage: META_API_KEY=... shunfeng-listen <file.wav> <flight>\n".utf8))
     exit(2)
