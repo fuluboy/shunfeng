@@ -27,6 +27,10 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Shunfeng listens to airport announcements so it can tell you when one is about your flight.
+    entitlements:
+      path: App/Shunfeng.entitlements
+      properties:
+        com.apple.developer.usernotifications.time-sensitive: true
     info:
       path: App/Info.plist
       properties:

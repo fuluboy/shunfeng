@@ -126,6 +126,13 @@ final class AnnouncementRulesTests: XCTestCase {
         XCTAssertNil(r.gate)
     }
 
+    func testSpaceBetweenGateLetterAndDigit() {
+        // Seen on the iPhone on 2026-10-28: "由A更改为B 7，请前往B 7登机门".
+        let r = read("中华航空公司自100班机飞往东京成田的旅客请注意，本班机登机门由A更改为B 7，请前往B 7登机门候机，", myFlight: "CI100")
+        XCTAssertEqual(r.gate, "B7")
+        XCTAssertEqual(read("Flight CI 100, now gate D 14R.", myFlight: "CI100").gate, "D14R")
+    }
+
     func testSpaceBetweenGateLetterAndChineseDigit() {
         XCTAssertEqual(read("長榮航空BR57班機登機門更改為 C 三。").gate, "C3")
     }

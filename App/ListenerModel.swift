@@ -225,6 +225,10 @@ final class ListenerModel: ObservableObject {
                 heard[i] = Heard(time: Date(), original: text, reading: reading, certainty: .sure, note: nil,
                                  confirmations: heard[i].confirmations)
                 alert(heard[i])
+            } else if UIApplication.shared.applicationState != .active || [.boarding, .finalCall].contains(reading.event) {
+                // Same news again. Normally that only raises confidence, but with the screen off the first
+                // alert may have gone unseen, and boarding calls are repeated because people miss them.
+                alert(heard[i], repeatCount: heard[i].confirmations)
             }
             return
         }
@@ -237,11 +241,12 @@ final class ListenerModel: ObservableObject {
         alert(item)
     }
 
-    private func alert(_ item: Heard) {
+    private func alert(_ item: Heard, repeatCount: Int = 1) {
         switch item.certainty {
         case .sure:
             if let event = item.reading.event { haptics.confirmed(event) }
-            notify(title: Self.headline(for: item.reading), body: item.original)
+            let title = Self.headline(for: item.reading)
+            notify(title: repeatCount > 1 ? "\(title)（第 \(repeatCount) 次廣播）" : title, body: item.original)
         case .maybe:
             haptics.maybe()
             notify(title: "可能跟你的班機有關", body: item.note ?? item.original)
@@ -258,6 +263,9 @@ final class ListenerModel: ObservableObject {
         // the background, so with the screen off the notification must carry the system alert instead,
         // or a deaf user in a pocket would feel nothing.
         content.sound = UIApplication.shared.applicationState == .active ? nil : .default
+        // Gate changes and final calls can't wait for a Focus mode to end. Time-sensitive alerts get
+        // through a Focus when the user allows them (iOS asks the first time one arrives).
+        content.interruptionLevel = .timeSensitive
         EventLog.write("notify", ["title": title, "with_sound": content.sound != nil])
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
