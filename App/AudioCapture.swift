@@ -8,9 +8,14 @@ final class AudioCapture {
     /// `onChunk` gets about 85 ms of audio at a time; `onLevel` gets a 0...1 loudness for the meter.
     func start(onChunk: @escaping (Data) -> Void, onLevel: @escaping (Float) -> Void) throws {
         let session = AVAudioSession.sharedInstance()
-        // .record keeps the mic on in the background (with the audio background mode); a wired or
-        // USB-C lavalier mic becomes the input automatically.
-        try session.setCategory(.record, mode: .default, options: [.allowBluetoothHFP])
+        // The mic stays on in the background through the audio background mode; a wired or USB-C
+        // lavalier mic becomes the input automatically.
+        // Not .record: that category silences all audio output, and in phone tests it also silenced the
+        // sound and vibration of the app's own notifications (banners showed, nothing was felt; LINE on the
+        // same phone was fine). .playAndRecord keeps output alive; .mixWithOthers so starting to listen
+        // doesn't stop the user's music or other apps.
+        try session.setCategory(.playAndRecord, mode: .default,
+                                options: [.allowBluetoothHFP, .mixWithOthers, .defaultToSpeaker])
         // iOS mutes all vibration and system sounds while an app records, so the mic doesn't pick them up.
         // For a deaf user the vibration *is* the alert, so it has to stay on (found in the first phone test).
         try session.setAllowHapticsAndSystemSoundsDuringRecording(true)
