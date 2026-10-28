@@ -54,9 +54,10 @@ final class HanedaRecordingTests: XCTestCase {
         XCTAssertEqual(AnnouncementRules.read("AI is changing the game for app development. Firebase is here to help.", myFlight: "JL8261").event, .info)
     }
 
-    // 49:10 — the recognizer added a sentence that was never announced. It names no flight, so it must
-    // not turn into an alert.
-    func testInventedSentenceWithoutFlightIsNotAnAlert() {
+    // 49:10 — no such sentence was announced. The recording passes escalators and moving walkways here,
+    // so it is most likely an English safety notice ("please mind the gap / your step") misheard as an
+    // instruction to go to a gate. It names no flight, so it must not turn into an alert.
+    func testMisheardNoticeWithoutFlightIsNotAnAlert() {
         let r = AnnouncementRules.read("We have information for you. Please proceed to gate one thank you.", myFlight: "JL8261")
         XCTAssertNil(r.flight)
         XCTAssertEqual(r.event, .info)
