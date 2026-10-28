@@ -24,6 +24,8 @@ struct Heard: Identifiable {
     let note: String?
     /// How many times this same news has been heard (Mandarin and English versions agree).
     var confirmations = 1
+    /// The user tapped "我知道了".
+    var acknowledged = false
 }
 
 @MainActor
@@ -73,14 +75,16 @@ final class ListenerModel: ObservableObject {
         destination = UserDefaults.standard.string(forKey: "destination") ?? ""
         NotificationCenter.default.addObserver(forName: UrgentAnswer.notification, object: nil, queue: .main) { [weak self] note in
             guard let answer = note.object as? UrgentAnswer else { return }
-            MainActor.assumeIsolated { self?.answer(answer) }
+            let id = (note.userInfo?["heardID"] as? String).flatMap(UUID.init)
+            MainActor.assumeIsolated { self?.answer(answer, heardID: id) }
         }
     }
 
     /// From the buttons on an urgent notification or on the alert card.
-    func answer(_ answer: UrgentAnswer) {
+    func answer(_ answer: UrgentAnswer, heardID: UUID?) {
         cancelUrgentRepeats()
         if answer == .atGate { atGate = true }
+        if let i = heard.firstIndex(where: { $0.id == heardID }) { heard[i].acknowledged = true }
         EventLog.write("urgent_answer", ["answer": answer.rawValue])
     }
 
@@ -279,10 +283,10 @@ final class ListenerModel: ObservableObject {
             }
             if let event { haptics.play(Haptics.Level(event)) }
             notify(title: repeatCount > 1 ? "\(title)（第 \(repeatCount) 次廣播）" : title, body: item.original,
-                   urgent: boardingCall)
+                   heardID: item.id, urgent: boardingCall)
         case .maybe:
             haptics.play(.maybe)
-            notify(title: "可能跟你的班機有關", body: item.note ?? item.original)
+            notify(title: "可能跟你的班機有關", body: item.note ?? item.original, heardID: item.id)
         case .notYours:
             break
         }
@@ -292,7 +296,7 @@ final class ListenerModel: ObservableObject {
 
     /// `urgent`: in the background the system vibration is the same for every alert, so boarding and
     /// final calls are repeated every 30 seconds (up to 4 times) until the user opens the app.
-    private func notify(title: String, body: String, urgent: Bool = false, quiet: Bool = false) {
+    private func notify(title: String, body: String, heardID: UUID? = nil, urgent: Bool = false, quiet: Bool = false) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -303,7 +307,9 @@ final class ListenerModel: ObservableObject {
         // Gate changes and final calls can't wait for a Focus mode to end. Time-sensitive alerts get
         // through a Focus when the user allows them (iOS asks the first time one arrives).
         content.interruptionLevel = .timeSensitive
-        if urgent { content.categoryIdentifier = UrgentAnswer.category }   // "我知道了" / "我已經在登機門了"
+        // Buttons on the notification: boarding calls get "我已經在登機門了" as well as "我知道了".
+        content.categoryIdentifier = urgent ? UrgentAnswer.boardingCategory : UrgentAnswer.generalCategory
+        if let heardID { content.userInfo = ["heardID": heardID.uuidString] }
         if quiet {
             content.sound = nil
             content.interruptionLevel = .passive

@@ -24,10 +24,10 @@ struct ContentView: View {
                         .font(.callout)
                     }
                     if let item = model.latestSure {
-                        AlertCard(item: item, atGate: model.atGate, answer: model.answer) { showingStaffCard = true }
+                        AlertCard(item: item, atGate: model.atGate, answer: { model.answer($0, heardID: $1) }) { showingStaffCard = true }
                     }
                     if let item = model.latestMaybe {
-                        AlertCard(item: item, atGate: model.atGate, answer: model.answer) { showingStaffCard = true }
+                        AlertCard(item: item, atGate: model.atGate, answer: { model.answer($0, heardID: $1) }) { showingStaffCard = true }
                     }
                     if !model.heard.isEmpty {
                         Text("聽到的廣播（原文）").font(.headline).padding(.top, 8)
@@ -116,7 +116,7 @@ struct ContentView: View {
 struct AlertCard: View {
     let item: Heard
     let atGate: Bool
-    let answer: (UrgentAnswer) -> Void
+    let answer: (UrgentAnswer, UUID) -> Void
     let askStaff: () -> Void
 
     private var isBoardingCall: Bool {
@@ -166,14 +166,25 @@ struct AlertCard: View {
                     .buttonStyle(.bordered)
             }
             .font(.callout)
-            if isBoardingCall && !atGate {
-                // Stops the repeated reminders; "at the gate" also keeps later boarding calls quiet.
-                HStack {
-                    Button("我知道了") { answer(.gotIt) }
-                        .buttonStyle(.bordered)
-                    Button("我已經在登機門了") { answer(.atGate) }
-                        .buttonStyle(.borderedProminent)
+            if item.acknowledged {
+                Label("已確認", systemImage: "checkmark.circle.fill")
+                    .font(.callout.bold())
+                    .foregroundStyle(.green)
+            } else {
+                // Same look for both answers, so neither feels like the "right" one. Only boarding calls
+                // offer "at the gate"; it also stops repeats and keeps later boarding calls quiet.
+                HStack(spacing: 12) {
+                    Button { answer(.gotIt, item.id) } label: {
+                        Text("我知道了").frame(maxWidth: .infinity)
+                    }
+                    if isBoardingCall && !atGate {
+                        Button { answer(.atGate, item.id) } label: {
+                            Text("我已經在登機門了").frame(maxWidth: .infinity)
+                        }
+                    }
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .font(.callout.bold())
             }
         }
