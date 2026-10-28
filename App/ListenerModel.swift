@@ -44,8 +44,13 @@ final class ListenerModel: ObservableObject {
         didSet { UserDefaults.standard.set(destination, forKey: "destination") }
     }
 
-    /// The newest announcement about the user's flight (sure or maybe), shown big on screen.
-    var latestForMe: Heard? { heard.first { $0.certainty != .notYours } }
+    /// The newest sure news about the user's flight: the big card. A later "maybe" must not push it away.
+    var latestSure: Heard? { heard.first { $0.certainty == .sure } }
+    /// A "maybe" newer than the latest sure news, shown as a second, smaller card.
+    var latestMaybe: Heard? {
+        guard let maybe = heard.first(where: { $0.certainty == .maybe }) else { return nil }
+        return maybe.time > (latestSure?.time ?? .distantPast) ? maybe : nil
+    }
 
     private let audio = AudioCapture()
     private let haptics = Haptics()
@@ -70,10 +75,12 @@ final class ListenerModel: ObservableObject {
             return
         }
         state = .connecting
+        EventLog.write("start", ["flight": flightCode, "destination": destination])
         Task {
             // Ask for permissions before opening the stream. The server drops a stream whose audio falls
             // behind real time, and a permission dialog would stall the audio for as long as it is open.
             guard await AVAudioApplication.requestRecordPermission() else {
+                EventLog.write("mic_denied")
                 state = .failed("需要麥克風權限才能聽廣播。請到「設定 → 隱私權與安全性 → 麥克風」打開 Shunfeng。")
                 return
             }
@@ -90,10 +97,17 @@ final class ListenerModel: ObservableObject {
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(200))
         chunks = continuation
         sender = Task {
+            var bytes = 0
             for await chunk in stream {
                 try? await transcriber.send(pcm: chunk)
+                bytes += chunk.count
+                // About every 10 seconds of audio, note that audio is still flowing (and in which app state).
+                if bytes / 320_000 != (bytes - chunk.count) / 320_000 {
+                    EventLog.write("audio_sent", ["seconds": bytes / 32_000, "level": Double(self.level)])
+                }
             }
         }
+        EventLog.write("connect")
 
         Task { [weak self] in
             do {
@@ -108,6 +122,7 @@ final class ListenerModel: ObservableObject {
                     onLevel: { value in Task { @MainActor in self?.level = value } }
                 )
             } catch {
+                EventLog.write("start_failed", ["error": error.localizedDescription])
                 self?.state = .failed("無法開始收音：\(error.localizedDescription)")
                 self?.stop()
             }
@@ -134,7 +149,8 @@ final class ListenerModel: ObservableObject {
 
     private func handle(_ event: RealtimeTranscriber.Event) {
         switch event {
-        case .sessionStarted:
+        case .sessionStarted(let id):
+            EventLog.write("session_started", ["session": id])
             state = .listening
         case .partial(let text):
             partial = text
@@ -145,8 +161,10 @@ final class ListenerModel: ObservableObject {
             // Usually the audio fell behind real time (a call, a Siri prompt, a network hiccup).
             // Reconnect instead of making the user notice and press start again.
             lastError = message
+            EventLog.write("stream_error", ["message": message])
             reconnect()
         case .closed:
+            EventLog.write("stream_closed", ["state": "\(state)"])
             // Sessions end after 60 minutes or on network trouble; keep listening if the user didn't stop.
             if state == .listening || state == .connecting { reconnect() }
         case .speechStarted:
@@ -202,6 +220,7 @@ final class ListenerModel: ObservableObject {
            let i = heard.firstIndex(where: { $0.reading.flight == reading.flight && $0.reading.event == reading.event
                && Date().timeIntervalSince($0.time) < 180 }) {
             heard[i].confirmations += 1
+            EventLog.write("heard_again", ["text": text, "confirmations": heard[i].confirmations])
             if heard[i].certainty == .maybe && certainty == .sure {
                 heard[i] = Heard(time: Date(), original: text, reading: reading, certainty: .sure, note: nil,
                                  confirmations: heard[i].confirmations)
@@ -211,6 +230,9 @@ final class ListenerModel: ObservableObject {
         }
 
         let item = Heard(time: Date(), original: text, reading: reading, certainty: certainty, note: note)
+        EventLog.write("heard", ["text": text, "flight": reading.flight ?? "", "event": reading.event?.rawValue ?? "",
+                                 "gate": reading.gate ?? "", "time_said": reading.time ?? "",
+                                 "certainty": "\(certainty)", "note": note ?? ""])
         heard.insert(item, at: 0)
         alert(item)
     }
@@ -236,6 +258,7 @@ final class ListenerModel: ObservableObject {
         // the background, so with the screen off the notification must carry the system alert instead,
         // or a deaf user in a pocket would feel nothing.
         content.sound = UIApplication.shared.applicationState == .active ? nil : .default
+        EventLog.write("notify", ["title": title, "with_sound": content.sound != nil])
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 

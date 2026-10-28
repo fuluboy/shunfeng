@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var model = ListenerModel()
     @State private var showingStaffCard = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -12,7 +13,10 @@ struct ContentView: View {
                     flightSetup
                     listenButton
                     statusLine
-                    if let item = model.latestForMe {
+                    if let item = model.latestSure {
+                        AlertCard(item: item) { showingStaffCard = true }
+                    }
+                    if let item = model.latestMaybe {
                         AlertCard(item: item) { showingStaffCard = true }
                     }
                     if !model.heard.isEmpty {
@@ -24,7 +28,10 @@ struct ContentView: View {
             }
             .navigationTitle("Shunfeng 順風")
             .fullScreenCover(isPresented: $showingStaffCard) {
-                StaffCard(text: model.staffCard(for: model.latestForMe?.reading)) { showingStaffCard = false }
+                StaffCard(text: model.staffCard(for: (model.latestSure ?? model.latestMaybe)?.reading)) { showingStaffCard = false }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                EventLog.write("scene", ["phase": "\(phase)"])
             }
         }
     }
