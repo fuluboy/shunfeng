@@ -112,6 +112,15 @@ final class ListenerModel: ObservableObject {
                 return
             }
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            // Record what the user actually allowed, so "a banner appeared but no sound or vibration"
+            // can be told apart from a switched-off setting by reading the log.
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            func on(_ s: UNNotificationSetting) -> String { s == .enabled ? "on" : (s == .disabled ? "off" : "n/a") }
+            EventLog.write("notification_settings", [
+                "authorized": settings.authorizationStatus == .authorized,
+                "sound": on(settings.soundSetting), "alert": on(settings.alertSetting),
+                "lock_screen": on(settings.lockScreenSetting), "time_sensitive": on(settings.timeSensitiveSetting),
+            ])
             guard state == .connecting else { return }   // the user pressed stop meanwhile
             connect(apiKey: key)
         }
