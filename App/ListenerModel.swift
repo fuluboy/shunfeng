@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import ShunfengCore
+import UIKit
 import UserNotifications
 
 /// How sure Shunfeng is that an announcement is about the user's flight.
@@ -231,7 +232,10 @@ final class ListenerModel: ObservableObject {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = nil   // the vibration pattern is the signal
+        // In the foreground our own vibration pattern is the signal. iOS does not let Core Haptics play in
+        // the background, so with the screen off the notification must carry the system alert instead,
+        // or a deaf user in a pocket would feel nothing.
+        content.sound = UIApplication.shared.applicationState == .active ? nil : .default
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
