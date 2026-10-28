@@ -63,6 +63,37 @@ final class HanedaRecordingTests: XCTestCase {
         XCTAssertEqual(r.event, .info)
     }
 
+    // Second replay of the same clip: the Japanese came through (with 機 instead of 便), but the English
+    // lost every flight number and half the gate.
+    func testSecondPassJapaneseWithKiInsteadOfBin() {
+        let r = AnnouncementRules.read("八千六百三十四日本航空八千二百六十一機はただいまご搭乗を最終案内をいたしています。 お急ぎ百四十一番ゲートにご搭乗ください。",
+                                       myFlight: "JL8261")
+        XCTAssertEqual(r.flight, "JL8261")
+        XCTAssertEqual(r.event, .finalCall)
+        XCTAssertEqual(r.gate, "141")
+    }
+
+    func testEnglishRepeatWithoutFlightConfirmsButFlagsTheGate() {
+        let user = UserFlight(code: "JL8261", destination: "上海")
+        let japanese = AnnouncementRules.read(finalCallJapanese + " " + finalCallGateJapanese, myFlight: user.code)
+        XCTAssertEqual(AnnouncementRules.followUp("Passengers on this flight please proceed to gate one immediately",
+                                                  to: japanese, user: user),
+                       .confirms(conflictingGate: "1"))
+        XCTAssertEqual(AnnouncementRules.followUp("passengers on this flight please proceed to gate one four one immediately",
+                                                  to: japanese, user: user),
+                       .confirms(conflictingGate: nil))
+    }
+
+    func testFragmentsAreNotFollowUps() {
+        let user = UserFlight(code: "JL8261", destination: "上海")
+        let japanese = AnnouncementRules.read(finalCallJapanese, myFlight: user.code)
+        XCTAssertNil(AnnouncementRules.followUp("Airline", to: japanese, user: user))
+        XCTAssertNil(AnnouncementRules.followUp("Shanghai Pudong", to: japanese, user: user))   // no event
+        XCTAssertNil(AnnouncementRules.followUp("Please watch your step.", to: japanese, user: user))
+        // A different event is not a repeat, even for "this flight".
+        XCTAssertNil(AnnouncementRules.followUp("This flight is delayed.", to: japanese, user: user))
+    }
+
     func testWordsThatLookLikeNumbersOrAirlines() {
         XCTAssertTrue(Normalizer.normalize("千葉方面").contains("千葉"))
         XCTAssertTrue(AnnouncementRules.flights(in: Normalizer.normalize("Air Canada 123 to Vancouver")).isEmpty)

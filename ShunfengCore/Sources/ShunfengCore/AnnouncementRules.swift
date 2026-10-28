@@ -52,6 +52,12 @@ public struct UserFlight: Equatable, Sendable {
     }
 }
 
+/// A later announcement that names no flight but repeats news the user already got.
+public enum FollowUp: Equatable, Sendable {
+    /// Same news again. `conflictingGate` is set when this version names a different gate.
+    case confirms(conflictingGate: String?)
+}
+
 public enum FlightMatch: Equatable, Sendable {
     case mine
     /// Flight number matched but the announcement named another destination. Worth a gentle
@@ -81,6 +87,23 @@ public enum AnnouncementRules {
             destinations: Destinations.heard(in: context),
             normalizedText: text
         )
+    }
+
+    /// Whether a flight-less announcement is the repeat of `previous` (for example the English version
+    /// after a Japanese final call, where the recognizer lost the flight numbers but kept "this flight"
+    /// and "Shanghai Pudong"). It must refer back ("this flight", 本班機, この便) or name the user's
+    /// destination, and announce the same event. A different gate is reported, never silently taken:
+    /// at Haneda one pass heard "gate one four one", another only "gate one".
+    public static func followUp(_ transcript: String, to previous: AnnouncementReading, user: UserFlight) -> FollowUp? {
+        let r = read(transcript, myFlight: user.code)
+        guard r.flight == nil, r.event != nil, r.event == previous.event else { return nil }
+        let refersBack = Pattern("this\\s+flight|本班機|この便", caseInsensitive: true).contains(in: r.normalizedText)
+        let sameDestination = user.destination.flatMap(Destinations.canonical).map { r.destinations.contains($0) } ?? false
+        guard refersBack || sameDestination else { return nil }
+        if let gate = r.gate, let known = previous.gate, gate != known {
+            return .confirms(conflictingGate: gate)
+        }
+        return .confirms(conflictingGate: nil)
     }
 
     // MARK: - Flights

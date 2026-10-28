@@ -26,6 +26,8 @@ struct Heard: Identifiable {
     var confirmations = 1
     /// The user tapped "我知道了".
     var acknowledged = false
+    /// A later version of the same news named this other gate (Japanese said 141, English only "one").
+    var conflictingGate: String?
 }
 
 @MainActor
@@ -194,6 +196,8 @@ final class ListenerModel: ObservableObject {
                 let combined = last.text + " " + text
                 lastTurn = (combined, Date())
                 merge(combined)
+            } else if followUp(text) {
+                lastTurn = (text, Date())
             } else {
                 lastTurn = (text, Date())
                 take(text)
@@ -214,6 +218,29 @@ final class ListenerModel: ObservableObject {
     }
 
     private var lastTurn: (text: String, at: Date)?
+
+    /// A flight-less announcement repeating recent news ("passengers on this flight…" after a Japanese
+    /// final call) counts as hearing it again. A different gate is flagged, not taken: the card says the
+    /// two versions disagree and asks the user to check the board.
+    private func followUp(_ text: String) -> Bool {
+        guard let i = heard.firstIndex(where: { $0.certainty != .notYours && Date().timeIntervalSince($0.time) < 90 }),
+              case .confirms(let otherGate) = AnnouncementRules.followUp(text, to: heard[i].reading, user: user) else {
+            return false
+        }
+        heard[i].confirmations += 1
+        EventLog.write("follow_up", ["text": text, "confirmations": heard[i].confirmations, "conflicting_gate": otherGate ?? ""])
+        if let otherGate, heard[i].conflictingGate == nil {
+            heard[i].conflictingGate = otherGate
+            heard[i].reading.gateIsCertain = false
+            haptics.play(.maybe)
+            notify(title: "登機門不確定，請看大螢幕",
+                   body: "前後兩次廣播聽到不同的登機門（\(heard[i].reading.gate ?? "?") 和 \(otherGate)）。",
+                   heardID: heard[i].id)
+        } else if UIApplication.shared.applicationState != .active {
+            alert(heard[i], repeatCount: heard[i].confirmations)
+        }
+        return true
+    }
 
     /// A follow-up turn completed an announcement already shown: update that card (for example with the
     /// gate) instead of treating the fragment as news of its own.
@@ -384,13 +411,18 @@ final class ListenerModel: ObservableObject {
 
     // MARK: - Wording
 
+    /// The gate as shown in a headline; an uncertain one says so instead of looking definite.
+    private static func gate(_ r: AnnouncementReading) -> String? {
+        r.gate.map { r.gateIsCertain ? $0 : "\($0)（待確認）" }
+    }
+
     static func headline(for r: AnnouncementReading) -> String {
         switch r.event {
-        case .gateChange: return r.gate.map { "登機門改到 \($0)" } ?? "登機門有變更（沒聽清楚是哪個門）"
+        case .gateChange: return gate(r).map { "登機門改到 \($0)" } ?? "登機門有變更（沒聽清楚是哪個門）"
         case .delay: return r.time.map { "班機延誤，新時間 \($0)" } ?? "班機延誤"
         case .timeChange: return r.time.map { "起飛提前到 \($0)！" } ?? "起飛時間提前！"
-        case .boarding: return r.gate.map { "開始登機・\($0) 登機門" } ?? "開始登機"
-        case .finalCall: return r.gate.map { "最後登機！\($0) 號登機門" } ?? "最後登機廣播！"
+        case .boarding: return gate(r).map { "開始登機・\($0) 登機門" } ?? "開始登機"
+        case .finalCall: return gate(r).map { "最後登機！\($0) 號登機門" } ?? "最後登機廣播！"
         case .cancel: return "班機取消"
         case .nameCall: return "廣播在找人，可能是你"
         case .info, nil: return "有一則廣播提到你的班號"

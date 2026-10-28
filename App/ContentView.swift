@@ -155,7 +155,12 @@ struct AlertCard: View {
                 Label("把手機拿在手上、朝向廣播喇叭，下一次廣播會聽得更清楚。", systemImage: "iphone.radiowaves.left.and.right")
                     .font(.callout)
             }
-            if item.reading.gate != nil && !item.reading.gateIsCertain {
+            if let other = item.conflictingGate {
+                Label("前後兩次廣播聽到不同的登機門（\(item.reading.gate ?? "?") 和 \(other)），請看大螢幕確認。",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout.bold())
+                    .foregroundStyle(.orange)
+            } else if item.reading.gate != nil && !item.reading.gateIsCertain {
                 Text("登機門聽起來不太確定，請看大螢幕確認。").font(.callout)
             }
             Text("「\(item.original)」").font(.footnote).foregroundStyle(.secondary)
