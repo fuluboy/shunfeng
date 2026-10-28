@@ -33,6 +33,7 @@ struct ContentView: View {
             }
             .onChange(of: scenePhase) { _, phase in
                 EventLog.write("scene", ["phase": "\(phase)"])
+                if phase == .active { model.cancelUrgentRepeats() }
             }
         }
     }
@@ -72,13 +73,10 @@ struct ContentView: View {
     /// Feel each vibration pattern, so the user learns the "vibration language" before the trip.
     private var vibrationMenu: some View {
         Menu {
-            Button("登機門變更（三下短震）") { model.tryVibration(.gateChange) }
-            Button("延誤／時間變更（兩下長震）") { model.tryVibration(.delay) }
-            Button("開始登機（兩組雙震）") { model.tryVibration(.boarding) }
-            Button("最後登機（急促連震）") { model.tryVibration(.finalCall) }
-            Button("取消（一長震）") { model.tryVibration(.cancel) }
-            Button("廣播找人（長短長）") { model.tryVibration(.nameCall) }
-            Button("可能跟你有關（輕震一下）") { model.tryVibration(nil) }
+            Button("可能跟你有關：震 1 下") { model.tryVibration(.maybe) }
+            Button("變更（登機門、延誤、找人）：震 2 下") { model.tryVibration(.change) }
+            Button("馬上行動（登機、最後登機）：震 3 下") { model.tryVibration(.actNow) }
+            Button("班機取消：一長震") { model.tryVibration(.cancelled) }
         } label: {
             Label("試試震動語言", systemImage: "iphone.radiowaves.left.and.right")
                 .font(.callout)

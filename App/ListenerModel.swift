@@ -244,18 +244,23 @@ final class ListenerModel: ObservableObject {
     private func alert(_ item: Heard, repeatCount: Int = 1) {
         switch item.certainty {
         case .sure:
-            if let event = item.reading.event { haptics.confirmed(event) }
+            if let event = item.reading.event { haptics.play(Haptics.Level(event)) }
             let title = Self.headline(for: item.reading)
-            notify(title: repeatCount > 1 ? "\(title)（第 \(repeatCount) 次廣播）" : title, body: item.original)
+            notify(title: repeatCount > 1 ? "\(title)（第 \(repeatCount) 次廣播）" : title, body: item.original,
+                   urgent: [.boarding, .finalCall].contains(item.reading.event))
         case .maybe:
-            haptics.maybe()
+            haptics.play(.maybe)
             notify(title: "可能跟你的班機有關", body: item.note ?? item.original)
         case .notYours:
             break
         }
     }
 
-    private func notify(title: String, body: String) {
+    static let urgentRepeatPrefix = "urgent-repeat-"
+
+    /// `urgent`: in the background the system vibration is the same for every alert, so boarding and
+    /// final calls are repeated every 30 seconds (up to 4 times) until the user opens the app.
+    private func notify(title: String, body: String, urgent: Bool = false) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -267,13 +272,34 @@ final class ListenerModel: ObservableObject {
         // through a Focus when the user allows them (iOS asks the first time one arrives).
         content.interruptionLevel = .timeSensitive
         EventLog.write("notify", ["title": title, "with_sound": content.sound != nil])
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        let center = UNUserNotificationCenter.current()
+        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+
+        guard urgent, UIApplication.shared.applicationState != .active else { return }
+        for n in 1...4 {
+            let again = content.mutableCopy() as! UNMutableNotificationContent
+            again.title = "提醒：\(title)"
+            again.sound = .default
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(30 * n), repeats: false)
+            center.add(UNNotificationRequest(identifier: Self.urgentRepeatPrefix + UUID().uuidString,
+                                             content: again, trigger: trigger))
+        }
+        EventLog.write("urgent_repeats_scheduled", ["title": title])
+    }
+
+    /// The user opened the app, so the urgent repeats have done their job.
+    func cancelUrgentRepeats() {
+        let center = UNUserNotificationCenter.current()
+        center.getPendingNotificationRequests { requests in
+            let ids = requests.map(\.identifier).filter { $0.hasPrefix(Self.urgentRepeatPrefix) }
+            center.removePendingNotificationRequests(withIdentifiers: ids)
+        }
     }
 
     /// Lets the user learn the vibration language, and check that vibration works at all.
-    func tryVibration(_ event: AnnouncementEvent?) {
-        if let event { haptics.confirmed(event) } else { haptics.maybe() }
-        EventLog.write("try_vibration", ["event": event?.rawValue ?? "maybe"])
+    func tryVibration(_ level: Haptics.Level) {
+        haptics.play(level)
+        EventLog.write("try_vibration", ["level": "\(level)"])
     }
 
     // MARK: - Wording
