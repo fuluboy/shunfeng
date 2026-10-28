@@ -1,0 +1,37 @@
+name: Shunfeng
+options:
+  bundleIdPrefix: com.bonboneyes
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  ShunfengCore:
+    path: ShunfengCore
+targets:
+  Shunfeng:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - package: ShunfengCore
+    settings:
+      base:
+        DEVELOPMENT_TEAM: UFP9594HV2
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: com.bonboneyes.shunfeng
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Shunfeng
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Shunfeng listens to airport announcements so it can tell you when one is about your flight.
+    info:
+      path: App/Info.plist
+      properties:
+        # Keep listening with the screen off or the phone in a pocket.
+        UIBackgroundModes: [audio]
+        # Injected at build time from the META_API_KEY environment variable; never committed.
+        # A build made this way contains the key, so it is for personal testing only.
+        MetaAPIKey: $(META_API_KEY)

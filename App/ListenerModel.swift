@@ -1,0 +1,224 @@
+import Foundation
+import ShunfengCore
+import UserNotifications
+
+/// How sure Shunfeng is that an announcement is about the user's flight.
+enum Certainty {
+    /// Flight and destination agree. Full alert.
+    case sure
+    /// Something points at the user's flight but not everything agrees. Gentle tap, "please check".
+    case maybe
+    /// Someone else's flight. Shown in the log only.
+    case notYours
+}
+
+/// One announcement as heard and read.
+struct Heard: Identifiable {
+    let id = UUID()
+    let time: Date
+    let original: String
+    let reading: AnnouncementReading
+    let certainty: Certainty
+    let note: String?
+    /// How many times this same news has been heard (Mandarin and English versions agree).
+    var confirmations = 1
+}
+
+@MainActor
+final class ListenerModel: ObservableObject {
+    enum State: Equatable {
+        case idle, connecting, listening
+        case failed(String)
+    }
+
+    @Published var state: State = .idle
+    @Published var level: Float = 0
+    @Published var partial = ""
+    @Published var heard: [Heard] = []
+    @Published var flightCode: String {
+        didSet { UserDefaults.standard.set(flightCode, forKey: "flightCode") }
+    }
+    @Published var destination: String {
+        didSet { UserDefaults.standard.set(destination, forKey: "destination") }
+    }
+
+    /// The newest announcement about the user's flight (sure or maybe), shown big on screen.
+    var latestForMe: Heard? { heard.first { $0.certainty != .notYours } }
+
+    private let audio = AudioCapture()
+    private let haptics = Haptics()
+    private var transcriber: RealtimeTranscriber?
+    private var sender: Task<Void, Never>?
+    private var chunks: AsyncStream<Data>.Continuation?
+
+    init() {
+        flightCode = UserDefaults.standard.string(forKey: "flightCode") ?? ""
+        destination = UserDefaults.standard.string(forKey: "destination") ?? ""
+    }
+
+    var user: UserFlight {
+        UserFlight(code: flightCode, destination: destination.isEmpty ? nil : destination)
+    }
+
+    // MARK: - Listening
+
+    func start() {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "MetaAPIKey") as? String, !key.isEmpty, !key.hasPrefix("$(") else {
+            state = .failed("這個版本沒有 API key，請用設定好 META_API_KEY 的環境重新建置。")
+            return
+        }
+        state = .connecting
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+
+        let transcriber = RealtimeTranscriber(apiKey: key)
+        self.transcriber = transcriber
+        // One sender task keeps audio chunks in order.
+        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(200))
+        chunks = continuation
+        sender = Task {
+            for await chunk in stream {
+                try? await transcriber.send(pcm: chunk)
+            }
+        }
+
+        Task { [weak self] in
+            do {
+                try await transcriber.start { event in
+                    Task { @MainActor in self?.handle(event) }
+                }
+                try self?.audio.start(
+                    onChunk: { continuation.yield($0) },
+                    onLevel: { value in Task { @MainActor in self?.level = value } }
+                )
+            } catch {
+                self?.state = .failed("無法開始收音：\(error.localizedDescription)")
+                self?.stop()
+            }
+        }
+    }
+
+    func stop() {
+        audio.stop()
+        chunks?.finish()
+        sender?.cancel()
+        transcriber?.cancel()
+        transcriber = nil
+        if case .failed = state {} else { state = .idle }
+        level = 0
+        partial = ""
+    }
+
+    private func handle(_ event: RealtimeTranscriber.Event) {
+        switch event {
+        case .sessionStarted:
+            state = .listening
+        case .partial(let text):
+            partial = text
+        case .turnComplete(_, let text):
+            partial = ""
+            if !text.trimmingCharacters(in: .whitespaces).isEmpty { take(text) }
+        case .error(let message):
+            state = .failed("語音辨識錯誤：\(message)")
+        case .closed:
+            // Sessions end after 60 minutes or on network trouble; keep listening if the user didn't stop.
+            if state == .listening {
+                stop()
+                start()
+            }
+        case .speechStarted:
+            break
+        }
+    }
+
+    // MARK: - Deciding what to tell the user
+
+    /// Exposed for previews and for replaying test transcripts.
+    func take(_ text: String) {
+        let reading = AnnouncementRules.read(text, myFlight: flightCode)
+        guard reading.event != .info else { return }
+
+        var certainty = Certainty.notYours
+        var note: String?
+        switch reading.match(for: user) {
+        case .mine where reading.event != nil:
+            certainty = .sure
+        case .mine:
+            certainty = .maybe
+            note = "聽到你的班號，但聽不清楚是什麼消息。"
+        case .destinationConflict(let heardPlaces):
+            certainty = .maybe
+            note = "聽到 \(reading.flight ?? "")，但廣播說的目的地是 \(heardPlaces.joined(separator: "、"))，跟你的不同。"
+        case .notMine:
+            break
+        }
+
+        // The same news in Mandarin and then English counts as hearing it twice, which raises confidence.
+        if certainty != .notYours,
+           let i = heard.firstIndex(where: { $0.reading.flight == reading.flight && $0.reading.event == reading.event
+               && Date().timeIntervalSince($0.time) < 180 }) {
+            heard[i].confirmations += 1
+            if heard[i].certainty == .maybe && certainty == .sure {
+                heard[i] = Heard(time: Date(), original: text, reading: reading, certainty: .sure, note: nil,
+                                 confirmations: heard[i].confirmations)
+                alert(heard[i])
+            }
+            return
+        }
+
+        let item = Heard(time: Date(), original: text, reading: reading, certainty: certainty, note: note)
+        heard.insert(item, at: 0)
+        alert(item)
+    }
+
+    private func alert(_ item: Heard) {
+        switch item.certainty {
+        case .sure:
+            if let event = item.reading.event { haptics.confirmed(event) }
+            notify(title: Self.headline(for: item.reading), body: item.original)
+        case .maybe:
+            haptics.maybe()
+            notify(title: "可能跟你的班機有關", body: item.note ?? item.original)
+        case .notYours:
+            break
+        }
+    }
+
+    private func notify(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = nil   // the vibration pattern is the signal
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+
+    // MARK: - Wording
+
+    static func headline(for r: AnnouncementReading) -> String {
+        switch r.event {
+        case .gateChange: return r.gate.map { "登機門改到 \($0)" } ?? "登機門有變更（沒聽清楚是哪個門）"
+        case .delay: return r.time.map { "班機延誤，新時間 \($0)" } ?? "班機延誤"
+        case .timeChange: return r.time.map { "起飛提前到 \($0)！" } ?? "起飛時間提前！"
+        case .boarding: return r.gate.map { "開始登機・\($0) 登機門" } ?? "開始登機"
+        case .finalCall: return "最後登機廣播！"
+        case .cancel: return "班機取消"
+        case .nameCall: return "廣播在找人，可能是你"
+        case .info, nil: return "有一則廣播提到你的班號"
+        }
+    }
+
+    /// What to show airport staff, in both languages.
+    func staffCard(for r: AnnouncementReading?) -> (zh: String, en: String) {
+        let flight = r?.flight ?? flightCode
+        switch r?.event {
+        case .cancel:
+            return ("我是聽障旅客，聽說 \(flight) 取消了。請問我該怎麼改票？",
+                    "I'm deaf. I think flight \(flight) was cancelled. How can I rebook?")
+        case .delay, .timeChange:
+            return ("我是聽障旅客。請問 \(flight) 現在幾點起飛？",
+                    "I'm deaf. What time does flight \(flight) depart now?")
+        default:
+            return ("我是聽障旅客。請問 \(flight) 現在在哪個登機門？",
+                    "I'm deaf. Which gate is flight \(flight) at now?")
+        }
+    }
+}
