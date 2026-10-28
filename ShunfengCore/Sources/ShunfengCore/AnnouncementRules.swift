@@ -24,10 +24,40 @@ public struct AnnouncementReading: Equatable, Sendable {
     public var gateIsCertain: Bool
     /// New time as HH:mm (24-hour).
     public var time: String?
+    /// Destinations named in this flight's part of the announcement (canonical names, e.g. "Tokyo").
+    public var destinations: Set<String> = []
     /// The normalized text the rules worked on.
     public var normalizedText: String
 
     public var mentionsFlight: Bool { flight != nil }
+
+    /// Whether this announcement is about the user's flight. A matching flight number with a
+    /// different destination is not trusted: speech recognition can drop a digit (CI1000 → CI100).
+    public func match(for user: UserFlight) -> FlightMatch {
+        guard flight == AnnouncementRules.normalizeFlight(user.code) else { return .notMine }
+        guard let mine = user.destination.flatMap(Destinations.canonical), !destinations.isEmpty,
+              !destinations.contains(mine) else { return .mine }
+        return .destinationConflict(heard: destinations.sorted())
+    }
+}
+
+/// The flight the user is taking.
+public struct UserFlight: Equatable, Sendable {
+    public var code: String
+    public var destination: String?
+
+    public init(code: String, destination: String? = nil) {
+        self.code = code
+        self.destination = destination
+    }
+}
+
+public enum FlightMatch: Equatable, Sendable {
+    case mine
+    /// Flight number matched but the announcement named another destination. Worth a gentle
+    /// "might be about you, please check" instead of a full alert.
+    case destinationConflict(heard: [String])
+    case notMine
 }
 
 /// Rule-based reading of airport announcements.
@@ -48,6 +78,7 @@ public enum AnnouncementRules {
             gate: gate,
             gateIsCertain: certain,
             time: extractTime(from: context),
+            destinations: Destinations.heard(in: context),
             normalizedText: text
         )
     }

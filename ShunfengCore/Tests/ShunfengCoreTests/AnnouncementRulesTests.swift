@@ -126,6 +126,40 @@ final class AnnouncementRulesTests: XCTestCase {
         XCTAssertNil(r.gate)
     }
 
+    func testSpaceBetweenGateLetterAndChineseDigit() {
+        XCTAssertEqual(read("長榮航空BR57班機登機門更改為 C 三。").gate, "C3")
+    }
+
+    // MARK: Destination check
+
+    func testDroppedDigitIsCaughtByDestination() {
+        // Live transcription turned "CI1000 to Hong Kong" into "CI 100" (seen on 2026-10-28).
+        let r = read("Final call for China Airlines flight CI 100 to Hong Kong at gate D2.", myFlight: "CI100")
+        XCTAssertEqual(r.flight, "CI100")
+        XCTAssertEqual(r.match(for: UserFlight(code: "CI100", destination: "東京成田")),
+                       .destinationConflict(heard: ["Hong Kong"]))
+    }
+
+    func testSameDestinationIsMine() {
+        let r = read("中華航空CI100班機飛往東京成田，登機門更改為B7。", myFlight: "CI100")
+        XCTAssertEqual(r.match(for: UserFlight(code: "CI100", destination: "Tokyo Narita")), .mine)
+    }
+
+    func testNoDestinationMentionedIsStillMine() {
+        let r = read("CI100 passengers, your new gate is B7.", myFlight: "CI100")
+        XCTAssertEqual(r.match(for: UserFlight(code: "CI100", destination: "Tokyo")), .mine)
+    }
+
+    func testOtherFlightIsNotMine() {
+        let r = read("BR192 to Tokyo Haneda is now boarding at gate C3.", myFlight: "CI100")
+        XCTAssertEqual(r.match(for: UserFlight(code: "CI100", destination: "Tokyo")), .notMine)
+    }
+
+    func testMacauAirlineIsNotADestination() {
+        XCTAssertFalse(Destinations.heard(in: "澳門航空NX631班機取消").contains("Macau"))
+        XCTAssertTrue(Destinations.heard(in: "飛往澳門的旅客").contains("Macau"))
+    }
+
     // MARK: Normalizer details
 
     func testChineseHundreds() {

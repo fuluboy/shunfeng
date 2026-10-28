@@ -95,7 +95,8 @@ public enum Normalizer {
     static let spokenToken = "(?:[A-Z]|\\d+|" + digitWords.keys.joined(separator: "|") + "|hundred)"
     static let spokenRun = Pattern("(?<![\\w-])\(spokenToken)(?:[\\s-]+\(spokenToken))+(?![\\w-])")
     static let letterHyphen = Pattern("(?<=[A-Z])-(?=[A-Z])")
-    static let chineseDigitsAfterCode = Pattern("(?<=[A-Z0-9])[零〇一二三四五六七八九]+")
+    // The recognizer sometimes puts a space in between ("C 三"), so one space is swallowed too.
+    static let chineseDigitsAfterCode = Pattern("(?<=[A-Z0-9]) ?[零〇一二三四五六七八九]+")
     static let chineseClock = Pattern("(上午|早上|中午|下午|晚上)?([零一二兩三四五六七八九十]{1,3})點(?:([零一二三四五六七八九十]{1,3})分)?")
 
     static func spokenCodes(_ text: String) -> String {
@@ -114,8 +115,8 @@ public enum Normalizer {
             }.joined()
         }
         t = letterHyphen.replace(in: t, template: "")                   // C-I → CI
-        t = chineseDigitsAfterCode.replace(in: t) { g in               // B七 → B7
-            String(g[0]!.compactMap { digitValue[$0].map(String.init) }.joined())
+        t = chineseDigitsAfterCode.replace(in: t) { g in               // B七 → B7, C 三 → C3
+            g[0]!.compactMap { digitValue[$0].map(String.init) }.joined()
         }
         t = chineseClock.replace(in: t) { g in                          // 下午三點四十分 → 15:40
             var hour = chineseSmallNumber(g[2]!)

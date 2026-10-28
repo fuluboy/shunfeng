@@ -6,9 +6,11 @@ let package = Package(
     platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         .library(name: "ShunfengCore", targets: ["ShunfengCore"]),
+        .executable(name: "shunfeng-listen", targets: ["shunfeng-listen"]),
     ],
     targets: [
         .target(name: "ShunfengCore"),
+        .executableTarget(name: "shunfeng-listen", dependencies: ["ShunfengCore"]),
         .testTarget(name: "ShunfengCoreTests", dependencies: ["ShunfengCore"]),
     ]
 )
