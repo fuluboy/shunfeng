@@ -38,8 +38,15 @@ final class ListenerModel: ObservableObject {
     @Published var partial = ""
     @Published var heard: [Heard] = []
     @Published var flightCode: String {
-        didSet { UserDefaults.standard.set(flightCode, forKey: "flightCode") }
+        didSet {
+            UserDefaults.standard.set(flightCode, forKey: "flightCode")
+            atGate = false
+        }
     }
+    /// The user said they are already at the gate: boarding calls are then logged quietly instead of
+    /// repeating, so the last minutes before boarding aren't full of buzzing. A gate change, delay or
+    /// cancellation clears it, because then they may need to move.
+    @Published var atGate = false
     @Published var destination: String {
         didSet { UserDefaults.standard.set(destination, forKey: "destination") }
     }
@@ -61,6 +68,17 @@ final class ListenerModel: ObservableObject {
     init() {
         flightCode = UserDefaults.standard.string(forKey: "flightCode") ?? ""
         destination = UserDefaults.standard.string(forKey: "destination") ?? ""
+        NotificationCenter.default.addObserver(forName: UrgentAnswer.notification, object: nil, queue: .main) { [weak self] note in
+            guard let answer = note.object as? UrgentAnswer else { return }
+            MainActor.assumeIsolated { self?.answer(answer) }
+        }
+    }
+
+    /// From the buttons on an urgent notification or on the alert card.
+    func answer(_ answer: UrgentAnswer) {
+        cancelUrgentRepeats()
+        if answer == .atGate { atGate = true }
+        EventLog.write("urgent_answer", ["answer": answer.rawValue])
     }
 
     var user: UserFlight {
@@ -244,10 +262,21 @@ final class ListenerModel: ObservableObject {
     private func alert(_ item: Heard, repeatCount: Int = 1) {
         switch item.certainty {
         case .sure:
-            if let event = item.reading.event { haptics.play(Haptics.Level(event)) }
+            let event = item.reading.event
             let title = Self.headline(for: item.reading)
+            let boardingCall = [.boarding, .finalCall].contains(event)
+            if atGate && boardingCall {
+                // Already at the gate: note it without buzzing or repeating.
+                notify(title: "（你已在登機門）\(title)", body: item.original, quiet: true)
+                return
+            }
+            if atGate && [.gateChange, .delay, .timeChange, .cancel].contains(event) {
+                atGate = false
+                EventLog.write("at_gate_cleared", ["event": event?.rawValue ?? ""])
+            }
+            if let event { haptics.play(Haptics.Level(event)) }
             notify(title: repeatCount > 1 ? "\(title)（第 \(repeatCount) 次廣播）" : title, body: item.original,
-                   urgent: [.boarding, .finalCall].contains(item.reading.event))
+                   urgent: boardingCall)
         case .maybe:
             haptics.play(.maybe)
             notify(title: "可能跟你的班機有關", body: item.note ?? item.original)
@@ -260,7 +289,7 @@ final class ListenerModel: ObservableObject {
 
     /// `urgent`: in the background the system vibration is the same for every alert, so boarding and
     /// final calls are repeated every 30 seconds (up to 4 times) until the user opens the app.
-    private func notify(title: String, body: String, urgent: Bool = false) {
+    private func notify(title: String, body: String, urgent: Bool = false, quiet: Bool = false) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -271,7 +300,12 @@ final class ListenerModel: ObservableObject {
         // Gate changes and final calls can't wait for a Focus mode to end. Time-sensitive alerts get
         // through a Focus when the user allows them (iOS asks the first time one arrives).
         content.interruptionLevel = .timeSensitive
-        EventLog.write("notify", ["title": title, "with_sound": content.sound != nil])
+        if urgent { content.categoryIdentifier = UrgentAnswer.category }   // "我知道了" / "我已經在登機門了"
+        if quiet {
+            content.sound = nil
+            content.interruptionLevel = .passive
+        }
+        EventLog.write("notify", ["title": title, "with_sound": content.sound != nil, "urgent": urgent, "quiet": quiet])
         let center = UNUserNotificationCenter.current()
         center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
 

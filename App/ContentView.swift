@@ -14,11 +14,20 @@ struct ContentView: View {
                     listenButton
                     vibrationMenu
                     statusLine
+                    if model.atGate {
+                        HStack {
+                            Label("你已在登機門，登機廣播不再震動提醒", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Spacer()
+                            Button("取消") { model.atGate = false }
+                        }
+                        .font(.callout)
+                    }
                     if let item = model.latestSure {
-                        AlertCard(item: item) { showingStaffCard = true }
+                        AlertCard(item: item, atGate: model.atGate, answer: model.answer) { showingStaffCard = true }
                     }
                     if let item = model.latestMaybe {
-                        AlertCard(item: item) { showingStaffCard = true }
+                        AlertCard(item: item, atGate: model.atGate, answer: model.answer) { showingStaffCard = true }
                     }
                     if !model.heard.isEmpty {
                         Text("聽到的廣播（原文）").font(.headline).padding(.top, 8)
@@ -106,7 +115,13 @@ struct ContentView: View {
 /// The big card for the newest announcement about the user's flight.
 struct AlertCard: View {
     let item: Heard
+    let atGate: Bool
+    let answer: (UrgentAnswer) -> Void
     let askStaff: () -> Void
+
+    private var isBoardingCall: Bool {
+        item.certainty == .sure && [.boarding, .finalCall].contains(item.reading.event)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -151,6 +166,16 @@ struct AlertCard: View {
                     .buttonStyle(.bordered)
             }
             .font(.callout)
+            if isBoardingCall && !atGate {
+                // Stops the repeated reminders; "at the gate" also keeps later boarding calls quiet.
+                HStack {
+                    Button("我知道了") { answer(.gotIt) }
+                        .buttonStyle(.bordered)
+                    Button("我已經在登機門了") { answer(.atGate) }
+                        .buttonStyle(.borderedProminent)
+                }
+                .font(.callout.bold())
+            }
         }
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
