@@ -39,6 +39,9 @@ final class ListenerModel: ObservableObject {
     @Published var heard: [Heard] = []
     @Published var flightCode: String {
         didSet {
+            // The text field writes the same value back when it loses focus (e.g. when a button is tapped),
+            // which cleared "at the gate" in the phone test. Only a real change of flight counts.
+            guard flightCode != oldValue else { return }
             UserDefaults.standard.set(flightCode, forKey: "flightCode")
             atGate = false
         }
