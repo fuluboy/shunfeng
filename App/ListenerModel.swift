@@ -63,6 +63,47 @@ final class ListenerModel: ObservableObject {
     @Published var dataNotice: (text: String, time: Date)?
     private var refresher: Task<Void, Never>?
 
+    // MARK: - Boarding pass
+
+    /// Read from a photo, waiting for the user to confirm.
+    @Published var scannedPass: BoardingPass?
+    /// "讀取中…" or why reading failed.
+    @Published var passStatus: String?
+
+    private var apiKey: String? {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "MetaAPIKey") as? String,
+              !key.isEmpty, !key.hasPrefix("$(") else { return nil }
+        return key
+    }
+
+    func readBoardingPass(_ image: UIImage) async {
+        guard let key = apiKey, let jpeg = PhotoPrep.jpeg(image) else {
+            passStatus = "沒辦法讀這張照片。"
+            return
+        }
+        passStatus = "Muse Spark 讀取登機證中…"
+        let started = Date()
+        do {
+            scannedPass = try await MetaModelAPI(apiKey: key).readBoardingPass(jpeg: jpeg)
+            passStatus = nil
+            EventLog.write("boarding_pass", ["flight": scannedPass?.flightCode ?? "", "to": scannedPass?.to ?? "",
+                                             "seconds": Date().timeIntervalSince(started),
+                                             "handwritten": scannedPass?.handwrittenChanges ?? ""])
+        } catch {
+            passStatus = "讀不出登機證（\(error.localizedDescription)）。可以重拍，或直接輸入班號。"
+            EventLog.write("boarding_pass_failed", ["error": error.localizedDescription])
+        }
+    }
+
+    /// The user confirmed what was read: fill in the flight and look it up in the flight data.
+    func useScannedPass() {
+        guard let pass = scannedPass else { return }
+        if let code = pass.flightCode { flightCode = code }
+        if let name = pass.destinationName { destination = name }
+        scannedPass = nil
+        Task { await refreshFlightData(alertOnChange: false) }
+    }
+
     /// The user said they are already at the gate: boarding calls are then logged quietly instead of
     /// repeating, so the last minutes before boarding aren't full of buzzing. A gate change, delay or
     /// cancellation clears it, because then they may need to move.

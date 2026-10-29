@@ -27,6 +27,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSMicrophoneUsageDescription: Shunfeng listens to airport announcements so it can tell you when one is about your flight.
+        INFOPLIST_KEY_NSCameraUsageDescription: Take a photo of your boarding pass to fill in your flight.
     entitlements:
       path: App/Shunfeng.entitlements
       properties:

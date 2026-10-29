@@ -1,3 +1,4 @@
+import PhotosUI
 import ShunfengCore
 import SwiftUI
 
@@ -5,6 +6,8 @@ struct ContentView: View {
     @StateObject private var model = ListenerModel()
     @State private var showingStaffCard = false
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showingCamera = false
+    @State private var pickedPhoto: PhotosPickerItem?
 
     var body: some View {
         NavigationStack {
@@ -52,6 +55,25 @@ struct ContentView: View {
             .fullScreenCover(isPresented: $showingStaffCard) {
                 StaffCard(text: model.staffCard(for: (model.latestSure ?? model.latestMaybe)?.reading)) { showingStaffCard = false }
             }
+            .sheet(isPresented: $showingCamera) {
+                CameraPicker { image in Task { await model.readBoardingPass(image) } }
+                    .ignoresSafeArea()
+            }
+            .sheet(item: $model.scannedPass) { pass in
+                BoardingPassConfirm(pass: pass, use: model.useScannedPass) {
+                    model.scannedPass = nil
+                    showingCamera = true
+                }
+            }
+            .onChange(of: pickedPhoto) { _, item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
+                        await model.readBoardingPass(image)
+                    }
+                    pickedPhoto = nil
+                }
+            }
             .onChange(of: scenePhase) { _, phase in
                 EventLog.write("scene", ["phase": "\(phase)"])
                 if phase == .active { model.cancelUrgentRepeats() }
@@ -61,7 +83,20 @@ struct ContentView: View {
 
     private var flightSetup: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("你的班機").font(.headline)
+            HStack {
+                Text("你的班機").font(.headline)
+                Spacer()
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button("拍登機證", systemImage: "camera") { showingCamera = true }
+                }
+                PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                    Label("相簿", systemImage: "photo")
+                }
+            }
+            .font(.callout)
+            if let status = model.passStatus {
+                Text(status).font(.footnote).foregroundStyle(.secondary)
+            }
             TextField("班號，例如 CI100", text: $model.flightCode)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
