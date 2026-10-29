@@ -105,7 +105,7 @@ public enum ADIP {
 
     // MARK: - CSV
 
-    static func csvRows(_ text: String) -> [[String]] {
+    public static func csvRows(_ text: String) -> [[String]] {
         var rows: [[String]] = []
         var row: [String] = []
         var field = ""

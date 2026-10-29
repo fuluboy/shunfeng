@@ -63,7 +63,8 @@ public enum Normalizer {
     // Gate numbers in words: Japanese "四十七番搭乗口", Chinese "十二號登機門".
     static let chineseGateNumber = Pattern("[零一二三四五六七八九十]{1,3}(?=\\s*(?:番|號\\s*登機門))")
     static let arabicClock = Pattern(#"(上午|早上|中午|下午|晚上)?\s*(\d{1,2})\s*點\s*(?:(\d{1,2})\s*分)?"#)
-    static let bareFlightNumber = Pattern("(?<![A-Z0-9])(?:[\(ciSounds)]|[A-Z](?![A-Z]))?\\s*(\\d{2,4})(?=\\s*(?:班|便|飛|維持|改|前往))")
+    // Not after a hyphen: in "C-I100" the code is already there, spelled out.
+    static let bareFlightNumber = Pattern("(?<![A-Z0-9-])(?:[\(ciSounds)]|[A-Z](?![A-Z]))?\\s*(\\d{2,4})(?=\\s*(?:班|便|飛|維持|改|前往))")
 
     static func asrCleanup(_ text: String) -> String {
         var t = String(text.map { simplifiedToTraditional[$0] ?? $0 })

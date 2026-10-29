@@ -1,0 +1,11 @@
+﻿id,lang,script,flight,event,gate,new_time,should_notify
+h01,zh,CI100班機延誤，預計十六點三十分起飛。,CI100,delay,,16:30,True
+h02,en,Flight CI100 to Tokyo has been delayed by 30 minutes.,CI100,delay,,,True
+h03,en,CI100 is now ready for boarding at gate A5.,CI100,boarding,A5,,True
+h04,en,This is the last and final call for CI100 to Tokyo.,CI100,final_call,,,True
+h05,en,"Passengers on CI100, please note the departure has been brought forward to 9 AM.",CI100,time_change,,09:00,True
+h06,en,CI100 will now depart from gate B2 instead of A5.,CI100,gate_change,B2,,True
+h07,zh,請陳先生立即到A5登機門報到。,,name_call,A5,,False
+h08,en,"Ladies and gentlemen, smoking is not permitted anywhere in the terminal.",,info,,,False
+h09,zh,華航CI100班機已經取消，請洽櫃檯。,CI100,cancel,,,True
+h10,zh,請搭乘CI100班機的旅客前往A5登機門，即將開始登機。,CI100,boarding,A5,,True

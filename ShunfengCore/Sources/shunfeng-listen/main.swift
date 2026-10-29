@@ -30,6 +30,36 @@ if args.count == 3, args[1] == "pass", let key = ProcessInfo.processInfo.environ
     exit(0)
 }
 
+// shunfeng-listen eval <announcements.csv>: score the rules on the written announcement scripts
+// (no speech recognition), as a traveler on CI100 to Tokyo would get them.
+if args.count == 3, args[1] == "eval" {
+    var rows = ADIP.csvRows(try String(contentsOfFile: args[2], encoding: .utf8))
+    let header = rows.removeFirst().map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\u{FEFF} ")) }
+    func column(_ name: String) -> Int { header.firstIndex(of: name)! }
+    let user = UserFlight(code: "CI100", destination: "東京")
+    var allRight = 0, notifyRight = 0, total = 0
+    for row in rows where row.count == header.count {
+        total += 1
+        let r = AnnouncementRules.read(row[column("script")], myFlight: user.code)
+        let notify: Bool
+        if case .mine = r.match(for: user) { notify = true } else { notify = false }
+        let expectNotify = row[column("should_notify")] == "True"
+        // Only what the app shows the user is scored: for other flights, just that it stays quiet.
+        var wrong: [String] = []
+        if notify != expectNotify { wrong.append("notify \(notify)") }
+        if expectNotify {
+            if r.event?.rawValue != row[column("event")] { wrong.append("event \(r.event?.rawValue ?? "-")") }
+            let gate = row[column("gate")], time = row[column("new_time")]
+            if !gate.isEmpty && r.gate != gate { wrong.append("gate \(r.gate ?? "-")") }
+            if !time.isEmpty && r.time != time { wrong.append("time \(r.time ?? "-")") }
+        }
+        if notify == expectNotify { notifyRight += 1 }
+        if wrong.isEmpty { allRight += 1 } else { print("✗ \(row[column("id")]) \(wrong.joined(separator: ", ")) | \(row[column("script")])") }
+    }
+    print("notify right \(notifyRight)/\(total), everything right \(allRight)/\(total)")
+    exit(0)
+}
+
 // shunfeng-listen translate "<text>": translate an announcement with Muse Spark Open, as the app does.
 if args.count == 3, args[1] == "translate", let key = ProcessInfo.processInfo.environment["BASETEN_API_KEY"] {
     let started = Date()

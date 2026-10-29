@@ -11,6 +11,13 @@ final class AnnouncementRulesTests: XCTestCase {
 
     // MARK: Gate changes
 
+    func testHyphenatedCodeAfterAirlineName() {
+        // The airline name must not add its code again in front of a code spelled "B-R".
+        let r = read("長榮B-R五十七班機，登機門改到C三。")
+        XCTAssertEqual(r.flight, "BR57")
+        XCTAssertEqual(r.gate, "C3")
+    }
+
     func testGateChangeInChinese() {
         let r = read("長榮航空BR57班機飛往維也納的旅客請注意，登機門由C3更改為D6，請前往D6登機門。")
         XCTAssertEqual(r.flight, "BR57")
