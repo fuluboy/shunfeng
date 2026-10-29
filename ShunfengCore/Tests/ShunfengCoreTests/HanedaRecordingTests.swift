@@ -5,6 +5,14 @@ import XCTest
 /// (46:01–57:00) played from a speaker. The expected answers were checked by hand against the video.
 /// Haneda never says airline codes, only names, and its gates are plain numbers.
 final class HanedaRecordingTests: XCTestCase {
+    func testDomesticAirlineNameGivesTheCode() {
+        // Heard at Haneda during an iPhone test on Oct 29.
+        let r = AnnouncementRules.read("This is the final call for Solaseed Air flight zero zero seven seven for Kagoshima.",
+                                       myFlight: "6J77")
+        XCTAssertEqual(r.flight, "6J77")
+        XCTAssertEqual(r.event, .finalCall)
+    }
+
 
     // 47:44 — Japanese final call, JAL 8261 to Shanghai Pudong (the gate came as a separate turn).
     let finalCallJapanese = "八十六号日本航空八千二百六十一便上海浦東行きはただいまご搭乗の最終案内をいたしております。"

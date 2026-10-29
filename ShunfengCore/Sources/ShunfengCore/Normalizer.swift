@@ -35,6 +35,11 @@ public enum Normalizer {
         ("中國國際航空", "CA"), ("Air China", "CA"),
         ("大韓航空", "KE"), ("Korean Air", "KE"), ("アシアナ航空", "OZ"), ("Asiana Airlines", "OZ"),
         ("新加坡航空", "SQ"), ("Singapore Airlines", "SQ"), ("ピーチ", "MM"), ("Peach", "MM"),
+        // Japanese domestic airlines, heard at Haneda.
+        ("ソラシドエア", "6J"), ("Solaseed Air", "6J"), ("スカイマーク", "BC"), ("Skymark", "BC"),
+        ("エア・ドゥ", "HD"), ("エアドゥ", "HD"), ("Air Do", "HD"), ("AIRDO", "HD"),
+        ("スターフライヤー", "7G"), ("Starflyer", "7G"), ("ジェットスター", "GK"), ("Jetstar", "GK"),
+        ("ZIPAIR", "ZG"), ("Zipair", "ZG"),
         ("Delta", "DL"), ("United", "UA"), ("American Airlines", "AA"),
     ]
 

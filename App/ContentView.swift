@@ -270,6 +270,9 @@ struct HeardRow: View {
                 Text(item.time, style: .time).font(.caption2).foregroundStyle(.secondary)
             }
             Text(item.original).font(.footnote).foregroundStyle(item.certainty == .notYours ? .secondary : .primary)
+            if let translation = item.translation {
+                Text("譯：\(translation)").font(.footnote)
+            }
         }
         .padding(10)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
