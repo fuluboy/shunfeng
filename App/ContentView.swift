@@ -214,6 +214,12 @@ struct AlertCard: View {
                 Text("登機門聽起來不太確定，請看大螢幕確認。").font(.callout)
             }
             Text("「\(item.original)」").font(.footnote).foregroundStyle(.secondary)
+            if let translation = item.translation {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(translation).font(.callout)
+                    Text("Muse Spark Open 機器翻譯，僅供參考").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
             HStack {
                 Label("到大螢幕確認", systemImage: "display")
                 Spacer()

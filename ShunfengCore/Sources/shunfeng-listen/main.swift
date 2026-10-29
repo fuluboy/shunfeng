@@ -30,6 +30,14 @@ if args.count == 3, args[1] == "pass", let key = ProcessInfo.processInfo.environ
     exit(0)
 }
 
+// shunfeng-listen translate "<text>": translate an announcement with Muse Spark Open, as the app does.
+if args.count == 3, args[1] == "translate", let key = ProcessInfo.processInfo.environment["BASETEN_API_KEY"] {
+    let started = Date()
+    let text = try await MuseSparkOpen(apiKey: key).translate(args[2])
+    print(String(format: "%.1fs", Date().timeIntervalSince(started)), text)
+    exit(0)
+}
+
 guard args.count == 3, let apiKey = ProcessInfo.processInfo.environment["META_API_KEY"] else {
     FileHandle.standardError.write(Data("usage: META_API_KEY=... shunfeng-listen <file.wav> <flight>\n".utf8))
     exit(2)

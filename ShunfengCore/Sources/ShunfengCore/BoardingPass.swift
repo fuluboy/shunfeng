@@ -91,20 +91,6 @@ public struct MetaModelAPI: Sendable {
     }
 
     func complete(_ body: [String: Any]) async throws -> String {
-        var request = URLRequest(url: Self.endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 60
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw NSError(domain: "MetaModelAPI", code: status,
-                          userInfo: [NSLocalizedDescriptionKey: "Meta Model API \(status): \(String(decoding: data.prefix(200), as: UTF8.self))"])
-        }
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let message = ((json?["choices"] as? [[String: Any]])?.first?["message"]) as? [String: Any]
-        return message?["content"] as? String ?? ""
+        try await ChatCompletions.post(Self.endpoint, apiKey: apiKey, body: body, service: "Meta Model API")
     }
 }

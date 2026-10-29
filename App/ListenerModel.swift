@@ -30,6 +30,8 @@ struct Heard: Identifiable {
     var conflictingGate: String?
     /// What Taoyuan's live flight data says about it, when the flight is in the data.
     var verification: Verification?
+    /// Muse Spark Open's Traditional Chinese for an English or Japanese announcement. Only a reading aid.
+    var translation: String?
 }
 
 @MainActor
@@ -383,6 +385,7 @@ final class ListenerModel: ObservableObject {
         heard[i].reading = reading
         heard[i].original = combined
         EventLog.write("turn_merged", ["text": combined, "gate": reading.gate ?? ""])
+        translate(heard[i])
         if gainedGate && heard[i].certainty == .sure {
             notify(title: Self.headline(for: reading), body: combined, heardID: heard[i].id,
                    urgent: [.boarding, .finalCall].contains(reading.event))
@@ -442,6 +445,7 @@ final class ListenerModel: ObservableObject {
                 heard[i] = Heard(time: Date(), original: text, reading: reading, certainty: .sure, note: nil,
                                  confirmations: heard[i].confirmations)
                 alert(heard[i])
+                translate(heard[i])
             } else if UIApplication.shared.applicationState != .active || [.boarding, .finalCall].contains(reading.event) {
                 // Same news again. Normally that only raises confidence, but with the screen off the first
                 // alert may have gone unseen, and boarding calls are repeated because people miss them.
@@ -457,6 +461,29 @@ final class ListenerModel: ObservableObject {
                                  "certainty": "\(certainty)", "note": note ?? ""])
         heard.insert(item, at: 0)
         alert(item)
+        if certainty != .notYours { translate(item) }
+    }
+
+    /// Adds a translation to the card when the announcement was English or Japanese. It arrives a few
+    /// seconds after the alert and never changes it: the alert must not wait on, or depend on, a translation.
+    private func translate(_ item: Heard) {
+        guard MuseSparkOpen.needsTranslation(item.original),
+              let key = Bundle.main.object(forInfoDictionaryKey: "BasetenAPIKey") as? String,
+              !key.isEmpty, !key.hasPrefix("$(") else { return }
+        let text = item.original
+        Task {
+            let started = Date()
+            do {
+                let translation = try await MuseSparkOpen(apiKey: key).translate(text)
+                // The card may have been merged with a later turn meanwhile; that text gets its own translation.
+                guard let i = heard.firstIndex(where: { $0.id == item.id && $0.original == text }) else { return }
+                heard[i].translation = translation
+                EventLog.write("translated", ["text": text, "translation": translation,
+                                              "seconds": Date().timeIntervalSince(started)])
+            } catch {
+                EventLog.write("translate_failed", ["error": error.localizedDescription])
+            }
+        }
     }
 
     private func alert(_ item: Heard, repeatCount: Int = 1) {

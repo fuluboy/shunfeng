@@ -40,3 +40,5 @@ targets:
         # Injected at build time from the META_API_KEY environment variable; never committed.
         # A build made this way contains the key, so it is for personal testing only.
         MetaAPIKey: $(META_API_KEY)
+        # Same for Baseten, which serves Muse Spark Open for translating announcements.
+        BasetenAPIKey: $(BASETEN_API_KEY)
