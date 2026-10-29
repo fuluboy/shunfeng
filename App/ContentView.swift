@@ -211,6 +211,9 @@ struct ContentView: View {
         switch model.state {
         case .idle:
             EmptyView()
+        case .offline:
+            Label("沒有網路，暫時聽不到廣播。網路恢復後會自動繼續聽。", systemImage: "wifi.slash")
+                .foregroundStyle(.orange)
         case .connecting:
             Label("連線中…", systemImage: "antenna.radiowaves.left.and.right")
         case .listening:

@@ -17,8 +17,8 @@ Built for the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/m
   in case the microphone missed an announcement.
 - **Alerts** with a time-sensitive notification and a vibration language you can feel:
   1 long buzz = maybe, 2 = a change, 3 = go now (boarding, final call), one very long = cancelled.
-- **Stops when the trip is over**: once the flight data shows your flight has left, or when the phone goes
-  into airplane mode. A cancellation or a move to the next day is told first, then you're asked whether to
+- **Stops when the trip is over**: once the flight data shows your flight has left, or after 30 minutes
+  without network (most likely airplane mode; shorter drops in elevators just pause and resume). A cancellation or a move to the next day is told first, then you're asked whether to
   stop. Without flight data, it asks around the departure time and stops if nobody answers. Can be turned off.
 - **Reads your boarding pass** from a photo, including handwritten changes, so you don't type the flight.
 - **Translates** English and Japanese announcements into Traditional Chinese as a reading aid.

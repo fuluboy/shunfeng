@@ -20,9 +20,9 @@ struct SettingsView: View {
                     """)
                 }
                 Section {
-                    LabeledContent("切到飛航模式", value: "一律停止聆聽")
+                    LabeledContent("沒有網路時", value: "暫停，恢復後自動繼續")
                 } footer: {
-                    Text("沒有網路就聽不到廣播，所以手機切到飛航模式時，會自動停止並通知你。")
+                    Text("進電梯、停車場斷網時會暫停，網路恢復就自動繼續聽；斷網超過 1 分鐘會通知你留意大螢幕。斷網超過 30 分鐘（多半是飛航模式）就停止聆聽並通知你。")
                 }
             }
             .navigationTitle("設定")

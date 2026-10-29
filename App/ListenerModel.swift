@@ -1,5 +1,4 @@
 import AVFoundation
-import CoreTelephony
 import Foundation
 import Network
 import ShunfengCore
@@ -40,6 +39,8 @@ struct Heard: Identifiable {
 final class ListenerModel: ObservableObject {
     enum State: Equatable {
         case idle, connecting, listening
+        /// Still meant to be listening, but there is no network: resumes by itself when it comes back.
+        case offline
         case failed(String)
     }
 
@@ -110,7 +111,10 @@ final class ListenerModel: ObservableObject {
     /// After "繼續聆聽", don't ask about the departure time again before this.
     private var nextDepartureAsk: Date?
     private let network = NWPathMonitor()
+    private var networkOnline = true
     private var offlineCheck: Task<Void, Never>?
+    /// Offline this long is not an elevator or a car park any more, but most likely airplane mode.
+    static let offlineStopAfter: TimeInterval = 30 * 60
 
     // MARK: - Boarding pass
 
@@ -242,10 +246,10 @@ final class ListenerModel: ObservableObject {
                 "sound": on(settings.soundSetting), "alert": on(settings.alertSetting),
                 "lock_screen": on(settings.lockScreenSetting), "time_sensitive": on(settings.timeSensitiveSetting),
             ])
-            guard state == .connecting else { return }   // the user pressed stop meanwhile
+            guard isListening else { return }   // the user pressed stop meanwhile
             await refreshFlightData(alertOnChange: false)
-            guard state == .connecting else { return }
-            connect(apiKey: key)
+            guard isListening else { return }
+            if networkOnline { connect(apiKey: key) } else { wentOffline() }
             watchDepartureTime()
             // The data is updated every 5 minutes; follow it while listening.
             refresher?.cancel()
@@ -304,7 +308,7 @@ final class ListenerModel: ObservableObject {
         }
     }
 
-    var isListening: Bool { state == .listening || state == .connecting }
+    var isListening: Bool { [.listening, .connecting, .offline].contains(state) }
 
     /// The flight has left: listening any longer only costs data, battery and model usage. Say so,
     /// so nobody thinks they are still covered.
@@ -422,20 +426,37 @@ final class ListenerModel: ObservableObject {
                category: UrgentAnswer.askStopCategory)
     }
 
-    /// Airplane mode: no network at all and no cellular service. iOS doesn't tell apps about airplane mode
-    /// directly, so this is the closest sign. Listening can't work offline anyway; stopping cleanly beats
-    /// failing with a connection error.
+    /// No network: an elevator, a car park, or airplane mode. iOS doesn't tell apps which, so pause and
+    /// resume by itself when the network is back. Because the user can't hear announcements meanwhile, say
+    /// so after a minute. Only after a long time offline (most likely airplane mode) stop for good.
     private func networkChanged(online: Bool) {
+        networkOnline = online
+        EventLog.write("network", ["online": online, "state": "\(state)"])
+        if online {
+            offlineCheck?.cancel()
+            guard state == .offline, let key = apiKey else { return }
+            reconnects = []
+            state = .connecting
+            connect(apiKey: key)
+        } else if isListening, state != .offline {
+            wentOffline()
+        }
+    }
+
+    private func wentOffline() {
+        stop()
+        state = .offline
         offlineCheck?.cancel()
-        guard !online, isListening || transcriber != nil else { return }
         offlineCheck = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled, let self else { return }
-            let radios = CTTelephonyNetworkInfo().serviceCurrentRadioAccessTechnology?.values.filter { !$0.isEmpty } ?? []
-            guard radios.isEmpty else { return }   // only the network hiccuped: reconnecting handles that
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+            guard !Task.isCancelled, self?.state == .offline else { return }
+            self?.notify(title: "沒有網路，暫時聽不到廣播",
+                         body: "網路恢復後會自動繼續聽。這段時間請留意大螢幕。")
+            try? await Task.sleep(nanoseconds: UInt64((Self.offlineStopAfter - 60) * 1_000_000_000))
+            guard !Task.isCancelled, self?.state == .offline else { return }
             EventLog.write("auto_stop", ["reason": "offline"])
-            self.stopWithNotice("手機好像切到飛航模式了（沒有任何網路），已停止聆聽。",
-                                body: "沒有網路就聽不到廣播。下飛機或恢復網路後，打開 App 按開始就會繼續聽。")
+            self?.stopWithNotice("沒有網路已超過 30 分鐘（可能是飛航模式），已停止聆聽。",
+                                 body: "還在機場的話，恢復網路後打開 App 按開始就會繼續聽。")
         }
     }
 
@@ -504,6 +525,7 @@ final class ListenerModel: ObservableObject {
         refresher?.cancel()
         departureWatch?.cancel()
         departureAsk = nil
+        offlineCheck?.cancel()
         stop()
         state = .idle
     }
@@ -612,6 +634,11 @@ final class ListenerModel: ObservableObject {
 
     private func reconnect() {
         guard transcriber != nil else { return }   // already stopped by the user
+        // A dropped network is not a failure: wait for it instead of using up the retries.
+        guard networkOnline else {
+            wentOffline()
+            return
+        }
         reconnects = reconnects.filter { Date().timeIntervalSince($0) < 60 } + [Date()]
         stop()
         // Give up after repeated failures in one minute and say so: never pretend to be listening.
