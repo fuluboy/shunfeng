@@ -95,4 +95,12 @@ final class ADIPTests: XCTestCase {
         new.status = "出發"
         XCTAssertEqual(Verification.changes(from: old, to: new), [])   // departing isn't news to act on
     }
+
+    func testDeparted() {
+        var f = ADIP.find("BR57", in: flights())!
+        XCTAssertFalse(f.hasDeparted)
+        f.status = "出發"
+        XCTAssertTrue(f.hasDeparted)
+        XCTAssertFalse(ADIP.find("CI101", in: flights())!.hasDeparted)   // an arrival never departs
+    }
 }

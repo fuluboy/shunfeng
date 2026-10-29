@@ -214,16 +214,30 @@ final class ListenerModel: ObservableObject {
             if alertOnChange, let old = flight, old.code == found.code {
                 for change in Verification.changes(from: old, to: found) { dataChanged(change) }
             }
+            // Only a departure seen while listening counts: a flight that left before the user pressed
+            // start may be yesterday's or today's of a trip that is tomorrow.
+            let departedNow = alertOnChange && flight?.code == found.code && flight?.hasDeparted == false && found.hasDeparted
             flight = found
             for i in heard.indices where heard[i].certainty != .notYours {
                 applyVerification(to: &heard[i])
             }
             EventLog.write("adip", ["flight": found.code, "found": true, "gate": found.gate ?? "", "status": found.status,
                                     "estimated": found.estimated, "codeshares": found.codeshares.joined(separator: ",")])
+            if departedNow { flightDeparted() }
         } catch {
             flightDataMessage = "暫時拿不到航班資料（\(error.localizedDescription)），廣播判讀照常運作。"
             EventLog.write("adip_failed", ["error": error.localizedDescription])
         }
+    }
+
+    /// The flight has left: listening any longer only costs data, battery and model usage. Say so,
+    /// so nobody thinks they are still covered.
+    private func flightDeparted() {
+        EventLog.write("auto_stop", ["flight": flight?.code ?? "", "reason": "departed"])
+        userStop()
+        dataNotice = ("你的班機已起飛，已自動停止聆聽", Date())
+        notify(title: "你的班機已起飛，已停止聆聽",
+               body: "航班資料顯示 \(flight?.code ?? flightCode) 已出發，Shunfeng 不再收音。還在機場的話，打開 App 按開始就會繼續聽。")
     }
 
     private func dataChanged(_ change: Verification.DataChange) {

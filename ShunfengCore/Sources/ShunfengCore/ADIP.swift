@@ -15,6 +15,8 @@ public struct ADIPFlight: Equatable, Sendable {
     public var placeEn: String         // Tokyo
     public var status: String          // 準時 / 改時 / 延遲 / 取消 / 出發 / 已到
     public var progress: String?       // 開始登機 / 最後登機 / 登機結束 / 已飛 ...
+    /// The plane has left the gate (or is in the air).
+    public var hasDeparted: Bool { kind == .departure && (status == "出發" || progress == "已飛") }
     /// The airline flying the plane has an aircraft type; codeshare rows leave it empty.
     public var isOperating: Bool
     /// Other flight numbers on the same plane. Empty when it can't be told for sure.
