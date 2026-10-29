@@ -19,6 +19,17 @@ if args.count >= 3, args[1] == "flight" {
     exit(0)
 }
 
+// shunfeng-listen pass <photo.jpg>: read a boarding pass with Muse Spark, as the app does.
+if args.count == 3, args[1] == "pass", let key = ProcessInfo.processInfo.environment["META_API_KEY"] {
+    let started = Date()
+    let pass = try await MetaModelAPI(apiKey: key).readBoardingPass(jpeg: try Data(contentsOf: URL(fileURLWithPath: args[2])))
+    print(String(format: "%.1fs", Date().timeIntervalSince(started)), pass.flightCode ?? "-", pass.date ?? "-",
+          "\(pass.from ?? "?")→\(pass.to ?? "?") (\(pass.destinationName ?? "-"))", "gate", pass.gate ?? "-",
+          "boarding", pass.boardingTime ?? "-", "seat", pass.seat ?? "-",
+          pass.handwrittenChanges.isEmpty ? "" : "| handwritten: \(pass.handwrittenChanges)")
+    exit(0)
+}
+
 guard args.count == 3, let apiKey = ProcessInfo.processInfo.environment["META_API_KEY"] else {
     FileHandle.standardError.write(Data("usage: META_API_KEY=... shunfeng-listen <file.wav> <flight>\n".utf8))
     exit(2)
