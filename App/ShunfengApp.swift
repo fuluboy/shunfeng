@@ -16,11 +16,18 @@ struct ShunfengApp: App {
 enum UrgentAnswer: String {
     case gotIt = "GOT_IT"
     case atGate = "AT_GATE"
+    /// The flight was cancelled or moved to another day, and the user has seen it.
+    case flightEndSeen = "FLIGHT_END_SEEN"
+    case stopListening = "STOP_LISTENING"
+    case keepListening = "KEEP_LISTENING"
 
     /// Boarding and final calls: "got it" and "I'm at the gate". Everything else only has "got it",
     /// since most news (a delay, a cancellation) has nothing to do with being at the gate.
     static let boardingCategory = "BOARDING"
     static let generalCategory = "GENERAL"
+    /// "Your flight was cancelled": seen first, then asked about stopping.
+    static let flightEndCategory = "FLIGHT_END"
+    static let askStopCategory = "ASK_STOP"
     static let notification = Notification.Name("ShunfengUrgentAnswer")
 }
 
@@ -33,7 +40,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // so someone already sitting at the gate can stop them without opening the app.
         let gotIt = UNNotificationAction(identifier: UrgentAnswer.gotIt.rawValue, title: "我知道了")
         let atGate = UNNotificationAction(identifier: UrgentAnswer.atGate.rawValue, title: "我已經在登機門了")
+        let seen = UNNotificationAction(identifier: UrgentAnswer.flightEndSeen.rawValue, title: "我知道了")
+        let stop = UNNotificationAction(identifier: UrgentAnswer.stopListening.rawValue, title: "停止聆聽")
+        let keep = UNNotificationAction(identifier: UrgentAnswer.keepListening.rawValue, title: "繼續聆聽")
         center.setNotificationCategories([
+            UNNotificationCategory(identifier: UrgentAnswer.flightEndCategory, actions: [seen], intentIdentifiers: []),
+            UNNotificationCategory(identifier: UrgentAnswer.askStopCategory, actions: [stop, keep], intentIdentifiers: []),
             UNNotificationCategory(identifier: UrgentAnswer.boardingCategory, actions: [gotIt, atGate], intentIdentifiers: []),
             UNNotificationCategory(identifier: UrgentAnswer.generalCategory, actions: [gotIt], intentIdentifiers: []),
         ])

@@ -23,6 +23,22 @@ public struct BoardingPass: Codable, Equatable, Sendable {
     /// "BR0197" → "BR197", ready to look up and to match announcements.
     public var flightCode: String? { flight.map(AnnouncementRules.normalizeFlight) }
 
+    /// When the flight leaves, as a date: the printed departure time, or 30 minutes after boarding when only
+    /// that is printed (`estimated`). Boarding passes print no year: the date within a month before `now`
+    /// or after it is taken, so a pass from April read in October means next April, not six months ago.
+    public func departure(now: Date = Date(), calendar: Calendar = .current) -> (date: Date, estimated: Bool)? {
+        guard let date, let time = departureTime ?? boardingTime else { return nil }
+        let d = date.split(separator: "-").compactMap { Int($0) }, t = time.split(separator: ":").compactMap { Int($0) }
+        guard d.count == 2, t.count == 2 else { return nil }
+        var parts = DateComponents(year: calendar.component(.year, from: now), month: d[0], day: d[1], hour: t[0], minute: t[1])
+        guard var result = calendar.date(from: parts) else { return nil }
+        if result < now.addingTimeInterval(-30 * 86_400) {
+            parts.year! += 1
+            result = calendar.date(from: parts) ?? result
+        }
+        return departureTime == nil ? (result.addingTimeInterval(30 * 60), true) : (result, false)
+    }
+
     /// Destination as the app's destination field takes it ("東京" for NRT or HND).
     public var destinationName: String? { to.flatMap { Airports.name[$0.uppercased()] } ?? to }
 }

@@ -8,6 +8,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var showingCamera = false
     @State private var pickedPhoto: PhotosPickerItem?
+    @State private var showingSettings = false
 
     var body: some View {
         NavigationStack {
@@ -18,6 +19,13 @@ struct ContentView: View {
                     listenButton
                     vibrationMenu
                     statusLine
+                    if let notice = model.stopNotice, model.state == .idle {
+                        Label(notice, systemImage: "pause.circle.fill")
+                            .font(.callout)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                    }
                     if model.atGate {
                         HStack {
                             Label("你已在登機門，登機廣播不再震動提醒", systemImage: "checkmark.circle.fill")
@@ -52,6 +60,26 @@ struct ContentView: View {
                 .padding()
             }
             .navigationTitle("Shunfeng 順風")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("設定", systemImage: "gearshape") { showingSettings = true }
+                }
+            }
+            .sheet(isPresented: $showingSettings) { SettingsView(model: model) }
+            .alert(questionTitle, isPresented: questionShown, presenting: model.question) { question in
+                switch question {
+                case .flightEnded:
+                    Button("我知道了") { model.flightEndSeen(inApp: true) }
+                case .stopListening:
+                    Button("停止聆聽", role: .destructive) { model.stopAsked() }
+                    Button("繼續聆聽", role: .cancel) { model.keepListening() }
+                }
+            } message: { question in
+                switch question {
+                case .flightEnded(_, let message): Text(message)
+                case .stopListening(let reason): Text(reason)
+                }
+            }
             .fullScreenCover(isPresented: $showingStaffCard) {
                 StaffCard(text: model.staffCard(for: (model.latestSure ?? model.latestMaybe)?.reading)) { showingStaffCard = false }
             }
@@ -105,8 +133,46 @@ struct ContentView: View {
                 .onSubmit { Task { await model.refreshFlightData(alertOnChange: false) } }
             TextField("目的地，例如 東京", text: $model.destination)
                 .textFieldStyle(.roundedBorder)
+            departureRow
         }
         .disabled(model.state != .idle && !isFailed)
+    }
+
+    /// Only needed when the flight isn't in Taoyuan's data: then it is how Shunfeng knows when to ask about stopping.
+    @ViewBuilder private var departureRow: some View {
+        if let time = model.departureTime {
+            HStack {
+                DatePicker("起飛時間", selection: Binding(get: { time }, set: {
+                    model.departureTime = $0
+                    model.departureTimeEstimated = false
+                }))
+                Button("清除", systemImage: "xmark.circle.fill") { model.departureTime = nil }
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.secondary)
+            }
+            if model.departureTimeEstimated {
+                Text("登機證只印登機時間，起飛時間是推估的（登機後 30 分鐘），請確認。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        } else if model.flight == nil {
+            Button("設定起飛時間", systemImage: "clock") {
+                model.departureTime = Calendar.current.date(byAdding: .hour, value: 2, to: Date())
+            }
+            .font(.callout)
+        }
+    }
+
+    private var questionTitle: String {
+        switch model.question {
+        case .flightEnded(let title, _): return title
+        case .stopListening: return "要停止聆聽嗎？"
+        case nil: return ""
+        }
+    }
+
+    private var questionShown: Binding<Bool> {
+        // Closing the alert by its buttons is handled by the buttons; this only clears it otherwise.
+        Binding(get: { model.question != nil }, set: { if !$0 { model.question = nil } })
     }
 
     private var isFailed: Bool {

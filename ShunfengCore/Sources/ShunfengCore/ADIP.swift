@@ -17,6 +17,9 @@ public struct ADIPFlight: Equatable, Sendable {
     public var progress: String?       // 開始登機 / 最後登機 / 登機結束 / 已飛 ...
     /// The plane has left the gate (or is in the air).
     public var hasDeparted: Bool { kind == .departure && (status == "出發" || progress == "已飛") }
+    public var isCancelled: Bool { status == "取消" }
+    /// Estimated to leave on a later day than scheduled (an overnight delay).
+    public var isMovedToNextDay: Bool { estimated.prefix(10) > scheduled.prefix(10) }
     /// The airline flying the plane has an aircraft type; codeshare rows leave it empty.
     public var isOperating: Bool
     /// Other flight numbers on the same plane. Empty when it can't be told for sure.

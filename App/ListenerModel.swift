@@ -1,5 +1,7 @@
 import AVFoundation
+import CoreTelephony
 import Foundation
+import Network
 import ShunfengCore
 import UIKit
 import UserNotifications
@@ -54,6 +56,8 @@ final class ListenerModel: ObservableObject {
             atGate = false
             flight = nil
             flightDataMessage = nil
+            departureTime = nil
+            flightEndAsked = nil
         }
     }
     /// The user's flight in Taoyuan's live data (nil when not found, e.g. flights from other airports).
@@ -64,6 +68,49 @@ final class ListenerModel: ObservableObject {
     /// A change in the flight data that may not have been announced (or that the microphone missed).
     @Published var dataNotice: (text: String, time: Date)?
     private var refresher: Task<Void, Never>?
+
+    // MARK: - Stopping when the trip is over
+
+    /// Stop listening when the flight has left, and offer to when it was cancelled or moved to another day.
+    /// Listening is the main running cost (speech recognition is billed per hour of audio), and it also
+    /// uses battery and data.
+    @Published var autoStop: Bool {
+        didSet { UserDefaults.standard.set(autoStop, forKey: "autoStop") }
+    }
+    /// When the flight leaves, from the boarding pass or set by hand. Used only when there is no flight data
+    /// to tell whether it has left (flights from airports other than Taoyuan).
+    @Published var departureTime: Date? {
+        didSet { UserDefaults.standard.set(departureTime, forKey: "departureTime") }
+    }
+    /// The departure time was worked out from the boarding time (only that was printed).
+    @Published var departureTimeEstimated = false
+    /// A question waiting for the user, shown as an alert.
+    @Published var question: Question?
+    /// Why listening stopped without the user pressing stop.
+    @Published var stopNotice: String?
+
+    enum Question: Identifiable {
+        /// The flight was cancelled or moved: seen first, then (with auto stop on) asked about stopping.
+        case flightEnded(title: String, message: String)
+        case stopListening(reason: String)
+
+        var id: String {
+            switch self {
+            case .flightEnded(let title, _): return "ended " + title
+            case .stopListening(let reason): return "stop " + reason
+            }
+        }
+    }
+
+    /// Flight code and reason already shown, so the 5-minute refresh doesn't ask again.
+    private var flightEndAsked: String?
+    private var departureWatch: Task<Void, Never>?
+    /// The departure-time question: how many times asked without an answer, and when last.
+    private var departureAsk: (count: Int, at: Date)?
+    /// After "繼續聆聽", don't ask about the departure time again before this.
+    private var nextDepartureAsk: Date?
+    private let network = NWPathMonitor()
+    private var offlineCheck: Task<Void, Never>?
 
     // MARK: - Boarding pass
 
@@ -102,6 +149,10 @@ final class ListenerModel: ObservableObject {
         guard let pass = scannedPass else { return }
         if let code = pass.flightCode { flightCode = code }
         if let name = pass.destinationName { destination = name }
+        if let departure = pass.departure() {
+            departureTime = departure.date
+            departureTimeEstimated = departure.estimated
+        }
         scannedPass = nil
         Task { await refreshFlightData(alertOnChange: false) }
     }
@@ -131,6 +182,13 @@ final class ListenerModel: ObservableObject {
     init() {
         flightCode = UserDefaults.standard.string(forKey: "flightCode") ?? ""
         destination = UserDefaults.standard.string(forKey: "destination") ?? ""
+        autoStop = UserDefaults.standard.object(forKey: "autoStop") as? Bool ?? true
+        departureTime = UserDefaults.standard.object(forKey: "departureTime") as? Date
+        network.pathUpdateHandler = { [weak self] path in
+            let online = path.status == .satisfied
+            Task { @MainActor in self?.networkChanged(online: online) }
+        }
+        network.start(queue: .main)
         NotificationCenter.default.addObserver(forName: UrgentAnswer.notification, object: nil, queue: .main) { [weak self] note in
             guard let answer = note.object as? UrgentAnswer else { return }
             let id = (note.userInfo?["heardID"] as? String).flatMap(UUID.init)
@@ -141,7 +199,13 @@ final class ListenerModel: ObservableObject {
     /// From the buttons on an urgent notification or on the alert card.
     func answer(_ answer: UrgentAnswer, heardID: UUID?) {
         cancelUrgentRepeats()
-        if answer == .atGate { atGate = true }
+        switch answer {
+        case .atGate: atGate = true
+        case .flightEndSeen: flightEndSeen(inApp: false)
+        case .stopListening: stopAsked()
+        case .keepListening: keepListening()
+        case .gotIt: break
+        }
         if let i = heard.firstIndex(where: { $0.id == heardID }) { heard[i].acknowledged = true }
         EventLog.write("urgent_answer", ["answer": answer.rawValue])
     }
@@ -158,6 +222,7 @@ final class ListenerModel: ObservableObject {
             return
         }
         state = .connecting
+        stopNotice = nil
         EventLog.write("start", ["flight": flightCode, "destination": destination])
         Task {
             // Ask for permissions before opening the stream. The server drops a stream whose audio falls
@@ -181,6 +246,7 @@ final class ListenerModel: ObservableObject {
             await refreshFlightData(alertOnChange: false)
             guard state == .connecting else { return }
             connect(apiKey: key)
+            watchDepartureTime()
             // The data is updated every 5 minutes; follow it while listening.
             refresher?.cancel()
             refresher = Task { [weak self] in
@@ -212,7 +278,11 @@ final class ListenerModel: ObservableObject {
             flightDataMessage = nil
             if destination.isEmpty { destination = found.placeZh }
             if alertOnChange, let old = flight, old.code == found.code {
-                for change in Verification.changes(from: old, to: found) { dataChanged(change) }
+                for change in Verification.changes(from: old, to: found) {
+                    // A cancellation or a move to another day gets its own message and question below.
+                    if case .status = change, found.isCancelled || found.isMovedToNextDay { continue }
+                    dataChanged(change)
+                }
             }
             // Only a departure seen while listening counts: a flight that left before the user pressed
             // start may be yesterday's or today's of a trip that is tomorrow.
@@ -223,21 +293,150 @@ final class ListenerModel: ObservableObject {
             }
             EventLog.write("adip", ["flight": found.code, "found": true, "gate": found.gate ?? "", "status": found.status,
                                     "estimated": found.estimated, "codeshares": found.codeshares.joined(separator: ",")])
-            if departedNow { flightDeparted() }
+            if departedNow {
+                flightDeparted()
+            } else if isListening {
+                flightEnded(found)
+            }
         } catch {
             flightDataMessage = "暫時拿不到航班資料（\(error.localizedDescription)），廣播判讀照常運作。"
             EventLog.write("adip_failed", ["error": error.localizedDescription])
         }
     }
 
+    var isListening: Bool { state == .listening || state == .connecting }
+
     /// The flight has left: listening any longer only costs data, battery and model usage. Say so,
     /// so nobody thinks they are still covered.
     private func flightDeparted() {
-        EventLog.write("auto_stop", ["flight": flight?.code ?? "", "reason": "departed"])
+        let code = flight?.code ?? flightCode
+        guard autoStop else {
+            notify(title: "航班資料：\(code) 已起飛", body: "自動停止已關閉，Shunfeng 會繼續聆聽，直到你按停止。")
+            return
+        }
+        EventLog.write("auto_stop", ["flight": code, "reason": "departed"])
+        stopWithNotice("你的班機已起飛，已自動停止聆聽。",
+                       body: "航班資料顯示 \(code) 已出發，Shunfeng 不再收音。還在機場的話，打開 App 按開始就會繼續聽。")
+    }
+
+    /// Stops listening on its own and says why, on screen and as a notification.
+    private func stopWithNotice(_ notice: String, body: String) {
         userStop()
-        dataNotice = ("你的班機已起飛，已自動停止聆聽", Date())
-        notify(title: "你的班機已起飛，已停止聆聽",
-               body: "航班資料顯示 \(flight?.code ?? flightCode) 已出發，Shunfeng 不再收音。還在機場的話，打開 App 按開始就會繼續聽。")
+        question = nil
+        stopNotice = notice
+        notify(title: notice, body: body)
+    }
+
+    /// Cancelled, or moved to another day: tell the user first; only once they have seen it, ask whether to
+    /// stop listening. The news matters more than saving usage, so it never stops on its own.
+    private func flightEnded(_ f: ADIPFlight) {
+        let reason: (key: String, title: String, message: String)
+        if f.isCancelled {
+            reason = ("cancel", "你的班機已取消", "航班資料顯示 \(f.code) 已取消。請看大螢幕，或問櫃台怎麼改票。")
+        } else if f.isMovedToNextDay {
+            reason = ("next_day", "你的班機改到 \(f.estimated.dropFirst(5).prefix(5).replacingOccurrences(of: "-", with: "/")) 起飛",
+                      "航班資料顯示 \(f.code) 預計 \(f.estimated.dropFirst(5).replacingOccurrences(of: "-", with: "/")) 起飛，不是今天。")
+        } else {
+            return
+        }
+        guard flightEndAsked != f.code + reason.key else { return }
+        flightEndAsked = f.code + reason.key
+        EventLog.write("flight_ended", ["flight": f.code, "reason": reason.key])
+        question = .flightEnded(title: reason.title, message: reason.message)
+        haptics.play(f.isCancelled ? .cancelled : .change)
+        let more = autoStop ? "按「我知道了」之後，會問你要不要停止聆聽。" : ""
+        notify(title: reason.title, body: reason.message + more, category: UrgentAnswer.flightEndCategory)
+    }
+
+    /// The user saw the cancellation or new day. Now ask about stopping (unless auto stop is off).
+    func flightEndSeen(inApp: Bool) {
+        question = nil
+        guard autoStop, isListening else { return }
+        let reason = "班機已取消或改期，今天應該不需要再聽廣播了。"
+        if inApp {
+            // Let the first alert finish closing before the next one opens.
+            Task {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                question = .stopListening(reason: reason)
+            }
+        } else {
+            question = .stopListening(reason: reason)
+            notify(title: "要停止聆聽嗎？", body: reason, category: UrgentAnswer.askStopCategory)
+        }
+    }
+
+    func stopAsked() {
+        EventLog.write("auto_stop", ["reason": "user_said_stop"])
+        userStop()
+        question = nil
+        stopNotice = "已依你的選擇停止聆聽。"
+    }
+
+    func keepListening() {
+        EventLog.write("keep_listening")
+        question = nil
+        departureAsk = nil
+        nextDepartureAsk = Date().addingTimeInterval(3600)
+    }
+
+    /// Without flight data, the departure time is the only clue. From 5 minutes before it, ask whether to
+    /// stop; no answer → ask again an hour later; still no answer 15 minutes after that → stop and say so.
+    private func watchDepartureTime() {
+        departureWatch?.cancel()
+        departureAsk = nil
+        nextDepartureAsk = nil
+        departureWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.checkDepartureTime()
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
+    }
+
+    private func checkDepartureTime(now: Date = Date()) {
+        guard autoStop, isListening, flight == nil, let departure = departureTime else { return }
+        if let ask = departureAsk {
+            let waited = now.timeIntervalSince(ask.at)
+            if ask.count == 1, waited >= 3600 {
+                askAboutDeparture(departure, count: 2)
+            } else if ask.count == 2, waited >= 15 * 60 {
+                EventLog.write("auto_stop", ["reason": "no_answer"])
+                stopWithNotice("沒有收到回應，已自動停止聆聽。",
+                               body: "已過起飛時間，兩次詢問都沒有回應。還在機場的話，打開 App 按開始就會繼續聽。")
+            }
+            return
+        }
+        if let next = nextDepartureAsk, now < next { return }
+        if now >= departure.addingTimeInterval(-5 * 60) { askAboutDeparture(departure, count: 1) }
+    }
+
+    private func askAboutDeparture(_ departure: Date, count: Int) {
+        departureAsk = (count, Date())
+        let time = departure.formatted(date: .omitted, time: .shortened)
+        let reason = departure > Date() ? "快到起飛時間 \(time) 了" : "已過起飛時間 \(time)"
+        EventLog.write("ask_stop", ["reason": "departure_time", "count": count])
+        question = .stopListening(reason: "\(reason)，但沒有航班資料能確認班機是否已起飛。")
+        notify(title: "\(reason)，要停止聆聽嗎？",
+               body: count == 1 ? "已經上飛機就可以停止。沒有回應的話，一小時後會再問一次。"
+                                : "15 分鐘內沒有回應，就會自動停止聆聽。",
+               category: UrgentAnswer.askStopCategory)
+    }
+
+    /// Airplane mode: no network at all and no cellular service. iOS doesn't tell apps about airplane mode
+    /// directly, so this is the closest sign. Listening can't work offline anyway; stopping cleanly beats
+    /// failing with a connection error.
+    private func networkChanged(online: Bool) {
+        offlineCheck?.cancel()
+        guard !online, isListening || transcriber != nil else { return }
+        offlineCheck = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            let radios = CTTelephonyNetworkInfo().serviceCurrentRadioAccessTechnology?.values.filter { !$0.isEmpty } ?? []
+            guard radios.isEmpty else { return }   // only the network hiccuped: reconnecting handles that
+            EventLog.write("auto_stop", ["reason": "offline"])
+            self.stopWithNotice("手機好像切到飛航模式了（沒有任何網路），已停止聆聽。",
+                                body: "沒有網路就聽不到廣播。下飛機或恢復網路後，打開 App 按開始就會繼續聽。")
+        }
     }
 
     private func dataChanged(_ change: Verification.DataChange) {
@@ -303,6 +502,8 @@ final class ListenerModel: ObservableObject {
     func userStop() {
         reconnects = []
         refresher?.cancel()
+        departureWatch?.cancel()
+        departureAsk = nil
         stop()
         state = .idle
     }
@@ -532,7 +733,8 @@ final class ListenerModel: ObservableObject {
 
     /// `urgent`: in the background the system vibration is the same for every alert, so boarding and
     /// final calls are repeated every 30 seconds (up to 4 times) until the user opens the app.
-    private func notify(title: String, body: String, heardID: UUID? = nil, urgent: Bool = false, quiet: Bool = false) {
+    private func notify(title: String, body: String, heardID: UUID? = nil, urgent: Bool = false, quiet: Bool = false,
+                        category: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -544,7 +746,7 @@ final class ListenerModel: ObservableObject {
         // through a Focus when the user allows them (iOS asks the first time one arrives).
         content.interruptionLevel = .timeSensitive
         // Buttons on the notification: boarding calls get "我已經在登機門了" as well as "我知道了".
-        content.categoryIdentifier = urgent ? UrgentAnswer.boardingCategory : UrgentAnswer.generalCategory
+        content.categoryIdentifier = category ?? (urgent ? UrgentAnswer.boardingCategory : UrgentAnswer.generalCategory)
         if let heardID { content.userInfo = ["heardID": heardID.uuidString] }
         if quiet {
             content.sound = nil

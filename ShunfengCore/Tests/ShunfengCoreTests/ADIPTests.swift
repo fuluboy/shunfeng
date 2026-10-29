@@ -96,6 +96,14 @@ final class ADIPTests: XCTestCase {
         XCTAssertEqual(Verification.changes(from: old, to: new), [])   // departing isn't news to act on
     }
 
+    func testCancelledAndMovedToNextDay() {
+        var f = ADIP.find("BR57", in: flights())!
+        XCTAssertFalse(f.isCancelled || f.isMovedToNextDay)
+        f.estimated = "2026-10-31 08:00"   // scheduled 2026-10-30 23:40
+        XCTAssertTrue(f.isMovedToNextDay)
+        XCTAssertTrue(ADIP.find("KE92", in: flights())!.isCancelled)
+    }
+
     func testDeparted() {
         var f = ADIP.find("BR57", in: flights())!
         XCTAssertFalse(f.hasDeparted)
