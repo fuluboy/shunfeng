@@ -110,6 +110,17 @@ final class ListenerModel: ObservableObject {
     private var departureAsk: (count: Int, at: Date)?
     /// After "繼續聆聽", don't ask about the departure time again before this.
     private var nextDepartureAsk: Date?
+    /// Whether the service can be reached right now. The start button waits for this.
+    @Published var connection: Connection = .checking
+    enum Connection { case checking, ok, noNetwork, unreachable }
+    /// Which microphone to use, and the one actually in use while listening.
+    @Published var mic: MicChoice {
+        didSet { UserDefaults.standard.set(mic.rawValue, forKey: "mic") }
+    }
+    @Published var micInUse: String?
+    private var retry: Task<Void, Never>?
+    private var watchdog: Task<Void, Never>?
+    static let watchdogID = "listening-watchdog"
     private let network = NWPathMonitor()
     private var networkOnline = true
     private var offlineCheck: Task<Void, Never>?
@@ -188,6 +199,7 @@ final class ListenerModel: ObservableObject {
         destination = UserDefaults.standard.string(forKey: "destination") ?? ""
         autoStop = UserDefaults.standard.object(forKey: "autoStop") as? Bool ?? true
         departureTime = UserDefaults.standard.object(forKey: "departureTime") as? Date
+        mic = MicChoice(rawValue: UserDefaults.standard.string(forKey: "mic") ?? "") ?? .phone
         network.pathUpdateHandler = { [weak self] path in
             let online = path.status == .satisfied
             Task { @MainActor in self?.networkChanged(online: online) }
@@ -227,7 +239,8 @@ final class ListenerModel: ObservableObject {
         }
         state = .connecting
         stopNotice = nil
-        EventLog.write("start", ["flight": flightCode, "destination": destination])
+        retry?.cancel()
+        EventLog.write("start", ["flight": flightCode, "destination": destination, "mic": mic.rawValue])
         Task {
             // Ask for permissions before opening the stream. The server drops a stream whose audio falls
             // behind real time, and a permission dialog would stall the audio for as long as it is open.
@@ -249,7 +262,14 @@ final class ListenerModel: ObservableObject {
             guard isListening else { return }   // the user pressed stop meanwhile
             await refreshFlightData(alertOnChange: false)
             guard isListening else { return }
-            if networkOnline { connect(apiKey: key) } else { wentOffline() }
+            armWatchdog()
+            if !networkOnline {
+                wentOffline()
+            } else if await checkConnection() {
+                connect(apiKey: key)
+            } else {
+                connectionFailed()
+            }
             watchDepartureTime()
             // The data is updated every 5 minutes; follow it while listening.
             refresher?.cancel()
@@ -398,7 +418,8 @@ final class ListenerModel: ObservableObject {
     }
 
     private func checkDepartureTime(now: Date = Date()) {
-        guard autoStop, isListening, flight == nil, let departure = departureTime else { return }
+        // Also while the connection is failing: the question about stopping matters most then.
+        guard autoStop, state != .idle, flight == nil, let departure = departureTime else { return }
         if let ask = departureAsk {
             let waited = now.timeIntervalSince(ask.at)
             if ask.count == 1, waited >= 3600 {
@@ -434,17 +455,112 @@ final class ListenerModel: ObservableObject {
         EventLog.write("network", ["online": online, "state": "\(state)"])
         if online {
             offlineCheck?.cancel()
-            guard state == .offline, let key = apiKey else { return }
-            reconnects = []
-            state = .connecting
-            connect(apiKey: key)
-        } else if isListening, state != .offline {
-            wentOffline()
+            Task {
+                let reachable = await checkConnection()
+                guard state == .offline else { return }
+                if reachable { resume() } else { connectionFailed() }
+            }
+        } else {
+            connection = .noNetwork
+            if isListening, state != .offline { wentOffline() }
         }
     }
 
+    /// Can the speech service be reached? A network can be "connected" and still lead nowhere: airport
+    /// Wi-Fi that wants you to tap "agree" in a browser first.
+    @discardableResult
+    func checkConnection() async -> Bool {
+        guard networkOnline else {
+            connection = .noNetwork
+            return false
+        }
+        connection = .checking
+        // Any HTTP answer from the service's host counts; a Wi-Fi login page can't answer for it over HTTPS.
+        var request = URLRequest(url: URL(string: "https://api.meta.ai/")!, cachePolicy: .reloadIgnoringLocalCacheData,
+                                 timeoutInterval: 6)
+        request.httpMethod = "HEAD"
+        let reachable = (try? await URLSession.shared.data(for: request))?.1 is HTTPURLResponse
+        connection = reachable ? .ok : .unreachable
+        EventLog.write("connection_check", ["reachable": reachable])
+        return reachable
+    }
+
+    /// Back to listening after a dropped network or a failed connection.
+    private func resume() {
+        guard let key = apiKey else { return }
+        retry?.cancel()
+        reconnects = []
+        state = .connecting
+        connect(apiKey: key)
+    }
+
+    /// The service can't be reached although there is a network. Say so plainly (on screen and as a
+    /// notification), keep the microphone on so the app stays awake, and retry every 30 seconds.
+    private func connectionFailed() {
+        dropConnection()
+        state = .failed("連不上語音辨識服務，現在聽不到廣播。請確認網路；機場 Wi-Fi 可能要先打開瀏覽器按「同意」。App 會每 30 秒自動重試，也可以按「重新連線」。")
+        EventLog.write("connection_failed", ["error": lastError ?? ""])
+        haptics.play(.change)
+        notify(title: "連不上網路，現在聽不到廣播",
+               body: "請確認網路；機場 Wi-Fi 可能要先打開瀏覽器按「同意」。App 會自動重試，連上後繼續聽。")
+        retry?.cancel()
+        retry = Task { [weak self] in
+            for _ in 0..<60 {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                guard !Task.isCancelled, let self, case .failed = self.state else { return }
+                if self.networkOnline, await self.checkConnection() {
+                    EventLog.write("connection_restored")
+                    self.notify(title: "已重新連上，繼續聆聽", body: "Shunfeng 又在聽廣播了。")
+                    self.resume()
+                    return
+                }
+            }
+        }
+    }
+
+    /// Ends the connection but keeps the microphone running. iOS keeps an app in the background only while
+    /// it records; with the microphone off it would be frozen and could not resume when the network returns.
+    private func dropConnection() {
+        chunks?.finish()
+        sender?.cancel()
+        transcriber?.cancel()
+        transcriber = nil
+        partial = ""
+    }
+
+    /// The safety net for "the app was closed and nobody knew": while listening, a notification is kept
+    /// scheduled 2 minutes ahead and pushed back every 30 seconds. Notifications are kept by iOS, not the
+    /// app, so if the app is swiped away, killed for memory or the phone restarts, nobody pushes it back
+    /// and it goes off.
+    private func armWatchdog() {
+        watchdog?.cancel()
+        watchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.scheduleWatchdog()
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
+    }
+
+    private func scheduleWatchdog() {
+        let content = UNMutableNotificationContent()
+        content.title = "Shunfeng 已經沒在聽廣播了"
+        content.body = "App 被關掉或手機重新開機，現在聽不到廣播。請打開 Shunfeng 按「開始聆聽」。"
+        content.sound = .default
+        content.interruptionLevel = .timeSensitive
+        // The same identifier replaces the previous one, so there is only ever one pending.
+        UNUserNotificationCenter.current().add(UNNotificationRequest(
+            identifier: Self.watchdogID, content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 120, repeats: false)))
+    }
+
+    private func disarmWatchdog() {
+        watchdog?.cancel()
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [Self.watchdogID])
+    }
+
     private func wentOffline() {
-        stop()
+        dropConnection()
         state = .offline
         offlineCheck?.cancel()
         offlineCheck = Task { [weak self] in
@@ -507,10 +623,22 @@ final class ListenerModel: ObservableObject {
                         if self?.transcriber === transcriber { self?.handle(event) }
                     }
                 }
-                try self?.audio.start(
+            } catch {
+                // Couldn't open the stream: a network problem, not the microphone.
+                EventLog.write("connect_failed", ["error": error.localizedDescription])
+                self?.lastError = error.localizedDescription
+                if self?.transcriber === transcriber { self?.connectionFailed() }
+                return
+            }
+            do {
+                guard let self else { return }
+                let name = try self.audio.start(
+                    mic: self.mic,
                     onChunk: { continuation.yield($0) },
-                    onLevel: { value in Task { @MainActor in self?.level = value } }
+                    onLevel: { value in Task { @MainActor in self.level = value } }
                 )
+                self.micInUse = name
+                EventLog.write("mic", ["chosen": self.mic.rawValue, "in_use": name])
             } catch {
                 EventLog.write("start_failed", ["error": error.localizedDescription])
                 self?.state = .failed("無法開始收音：\(error.localizedDescription)")
@@ -526,8 +654,11 @@ final class ListenerModel: ObservableObject {
         departureWatch?.cancel()
         departureAsk = nil
         offlineCheck?.cancel()
+        retry?.cancel()
+        disarmWatchdog()
         stop()
         state = .idle
+        micInUse = nil
     }
 
     func stop() {
@@ -640,10 +771,10 @@ final class ListenerModel: ObservableObject {
             return
         }
         reconnects = reconnects.filter { Date().timeIntervalSince($0) < 60 } + [Date()]
-        stop()
-        // Give up after repeated failures in one minute and say so: never pretend to be listening.
+        dropConnection()
+        // After repeated failures in one minute, say so: never pretend to be listening.
         guard reconnects.count <= 3 else {
-            state = .failed("收音連線一直中斷（\(lastError ?? "連線關閉")）。請確認網路後再按一次開始。")
+            connectionFailed()
             return
         }
         state = .connecting

@@ -17,6 +17,7 @@ struct ContentView: View {
                     flightSetup
                     FlightDataView(flight: model.flight, updated: model.flightDataTime, message: model.flightDataMessage)
                     listenButton
+                    connectionLine
                     vibrationMenu
                     statusLine
                     if let notice = model.stopNotice, model.state == .idle {
@@ -104,8 +105,12 @@ struct ContentView: View {
             }
             .onChange(of: scenePhase) { _, phase in
                 EventLog.write("scene", ["phase": "\(phase)"])
-                if phase == .active { model.cancelUrgentRepeats() }
+                if phase == .active {
+                    model.cancelUrgentRepeats()
+                    if model.state == .idle { Task { await model.checkConnection() } }
+                }
             }
+            .task { await model.checkConnection() }
         }
     }
 
@@ -184,14 +189,38 @@ struct ContentView: View {
         Button {
             if model.state == .idle || isFailed { model.start() } else { model.userStop() }
         } label: {
-            Label(model.state == .idle || isFailed ? "開始聆聽廣播" : "停止",
-                  systemImage: model.state == .idle || isFailed ? "ear" : "stop.fill")
+            Label(isFailed ? "重新連線" : (model.state == .idle ? "開始聆聽廣播" : "停止"),
+                  systemImage: isFailed ? "arrow.clockwise" : (model.state == .idle ? "ear" : "stop.fill"))
                 .font(.title3.bold())
                 .frame(maxWidth: .infinity, minHeight: 52)
         }
         .buttonStyle(.borderedProminent)
         .tint(model.state == .idle || isFailed ? .blue : .red)
-        .disabled(model.flightCode.trimmingCharacters(in: .whitespaces).isEmpty)
+        .disabled(model.flightCode.trimmingCharacters(in: .whitespaces).isEmpty
+                  || (model.state == .idle && model.connection != .ok))
+    }
+
+    /// Before starting: whether the service can be reached, so the start button never leads to a dead stream.
+    @ViewBuilder private var connectionLine: some View {
+        if model.state == .idle {
+            switch model.connection {
+            case .ok:
+                EmptyView()
+            case .checking:
+                Label("檢查連線中…", systemImage: "antenna.radiowaves.left.and.right").font(.callout)
+            case .noNetwork, .unreachable:
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(model.connection == .noNetwork
+                          ? "目前沒有網路，無法聆聽。請打開 Wi-Fi 或行動網路。"
+                          : "連不上語音辨識服務。如果連的是機場 Wi-Fi，請先打開瀏覽器完成登入（按「同意」）。",
+                          systemImage: "wifi.exclamationmark")
+                        .foregroundStyle(.orange)
+                    Button("重新檢查", systemImage: "arrow.clockwise") { Task { await model.checkConnection() } }
+                        .buttonStyle(.bordered)
+                }
+                .font(.callout)
+            }
+        }
     }
 
     /// Feel each vibration pattern, so the user learns the "vibration language" before the trip.
@@ -219,6 +248,9 @@ struct ContentView: View {
         case .listening:
             VStack(alignment: .leading, spacing: 6) {
                 Label("聆聽中。手機放口袋也可以，有你的消息會震動。", systemImage: "waveform")
+                if let mic = model.micInUse {
+                    Text("收音：\(mic)").font(.footnote).foregroundStyle(.secondary)
+                }
                 ProgressView(value: Double(model.level)).tint(model.level < 0.15 ? .orange : .green)
                 if !model.partial.isEmpty {
                     Text(model.partial).font(.footnote).foregroundStyle(.secondary).lineLimit(2)

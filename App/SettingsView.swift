@@ -5,9 +5,31 @@ struct SettingsView: View {
     @ObservedObject var model: ListenerModel
     @Environment(\.dismiss) private var dismiss
 
+    private var micNote: String {
+        switch model.mic {
+        case .phone:
+            return "用 iPhone 本身的麥克風收音。戴 AirPods 或助聽器時，聲音照樣可以從它們播出，收音仍然用手機。"
+        case .external:
+            return "接上有線或 USB-C 麥克風（例如領夾麥克風）時用它收音；沒接的時候改用手機麥克風。"
+        case .bluetooth:
+            return "用藍牙耳機或助聽器的麥克風收音。請注意：講電話或視訊時，麥克風會被通話佔用，這段時間的廣播可能會漏掉；藍牙麥克風的音質通常也比手機差，離喇叭遠時比較聽不清楚。"
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("收音裝置", selection: $model.mic) {
+                        ForEach(MicChoice.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } header: {
+                    Text("收音裝置")
+                } footer: {
+                    Text(micNote + (model.isListening ? "\n\n下次按「開始聆聽」時生效。" : ""))
+                }
                 Section {
                     Toggle("班機結束後自動停止聆聽", isOn: $model.autoStop)
                 } footer: {
