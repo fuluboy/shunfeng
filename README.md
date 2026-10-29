@@ -69,3 +69,7 @@ Before the hackathon (Oct 23–26), I did some research outside this repo:
 ## Flight data
 
 Live flight status comes from Taoyuan International Airport's open data (ADIP), published under Taiwan's Open Government Data License.
+
+## License
+
+[MIT](LICENSE). Flight data from ADIP keeps its own license (above).
