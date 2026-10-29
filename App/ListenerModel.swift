@@ -461,13 +461,14 @@ final class ListenerModel: ObservableObject {
                                  "certainty": "\(certainty)", "note": note ?? ""])
         heard.insert(item, at: 0)
         alert(item)
-        translate(item)
+        if certainty != .notYours { translate(item) }
     }
 
-    /// Adds a translation when the announcement was English or Japanese, for every announcement in the list,
-    /// not only the user's: people read the others too, to know what is going on around them. It arrives a
-    /// few seconds after the alert and never changes it: the alert must not wait on, or depend on, a translation.
-    private func translate(_ item: Heard) {
+    /// Adds a translation when the announcement was English or Japanese. Automatic only for the user's
+    /// flight; others are translated when the user taps "翻譯", so a busy airport doesn't cost a model call
+    /// per announcement. It arrives a few seconds after the alert and never changes it: the alert must not
+    /// wait on, or depend on, a translation.
+    func translate(_ item: Heard) {
         guard MuseSparkOpen.needsTranslation(item.original),
               let key = Bundle.main.object(forInfoDictionaryKey: "BasetenAPIKey") as? String,
               !key.isEmpty, !key.hasPrefix("$(") else { return }

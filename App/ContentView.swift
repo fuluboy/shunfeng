@@ -46,7 +46,7 @@ struct ContentView: View {
                     }
                     if !model.heard.isEmpty {
                         Text("聽到的廣播（原文）").font(.headline).padding(.top, 8)
-                        ForEach(model.heard) { HeardRow(item: $0) }
+                        ForEach(model.heard) { item in HeardRow(item: item) { model.translate(item) } }
                     }
                 }
                 .padding()
@@ -258,6 +258,8 @@ struct AlertCard: View {
 
 struct HeardRow: View {
     let item: Heard
+    let translate: () -> Void
+    @State private var translating = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -272,6 +274,13 @@ struct HeardRow: View {
             Text(item.original).font(.footnote).foregroundStyle(item.certainty == .notYours ? .secondary : .primary)
             if let translation = item.translation {
                 Text("譯：\(translation)").font(.footnote)
+            } else if MuseSparkOpen.needsTranslation(item.original) {
+                Button(translating ? "翻譯中…" : "翻譯", systemImage: "character.bubble") {
+                    translating = true
+                    translate()
+                }
+                .font(.caption)
+                .disabled(translating)
             }
         }
         .padding(10)
