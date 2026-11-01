@@ -722,6 +722,7 @@ final class ListenerModel: ObservableObject {
 
     /// Called by the stop button: also forgets reconnect history.
     func userStop() {
+        EventLog.write("stop", ["state": "\(state)"])
         reconnects = []
         refresher?.cancel()
         departureWatch?.cancel()
