@@ -209,6 +209,16 @@ final class ListenerModel: ObservableObject {
         }
         network.start(queue: .main)
         calls.onCallEnded = { [weak self] in self?.interruptionEnded() }
+        // Still marked as listening at launch: the last session ended without the user pressing stop
+        // (swiped away, killed, phone restarted). Say so in the app too: tapping the watchdog notification
+        // opens the app and removes the notification, so its text is easy to miss.
+        if let since = UserDefaults.standard.object(forKey: Self.listeningSinceKey) as? Date {
+            EventLog.write("unexpected_end", ["listening_since": since.ISO8601Format()])
+            stopNotice = "上次的聆聽意外中斷了（App 被關閉或手機重新開機），中斷後的廣播都沒有聽到。請按「開始聆聽」繼續。"
+            UserDefaults.standard.removeObject(forKey: Self.listeningSinceKey)
+        }
+        // Not listening now, so a watchdog left from that session would be a false alarm.
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [Self.watchdogID])
         NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil,
                                                queue: .main) { [weak self] note in
             let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
@@ -602,7 +612,10 @@ final class ListenerModel: ObservableObject {
     /// scheduled 2 minutes ahead and pushed back every 30 seconds. Notifications are kept by iOS, not the
     /// app, so if the app is swiped away, killed for memory or the phone restarts, nobody pushes it back
     /// and it goes off.
+    static let listeningSinceKey = "listeningSince"
+
     private func armWatchdog() {
+        UserDefaults.standard.set(Date(), forKey: Self.listeningSinceKey)
         watchdog?.cancel()
         watchdog = Task { [weak self] in
             while !Task.isCancelled {
@@ -627,6 +640,7 @@ final class ListenerModel: ObservableObject {
     }
 
     private func disarmWatchdog() {
+        UserDefaults.standard.removeObject(forKey: Self.listeningSinceKey)
         watchdog?.cancel()
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [Self.watchdogID])
     }
