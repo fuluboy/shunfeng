@@ -617,10 +617,21 @@ final class ListenerModel: ObservableObject {
     private func armWatchdog() {
         UserDefaults.standard.set(Date(), forKey: Self.listeningSinceKey)
         watchdog?.cancel()
+        // Battery use is part of whether this works for a whole airport stay: note it every 5 minutes.
+        UIDevice.current.isBatteryMonitoringEnabled = true
         watchdog = Task { [weak self] in
+            var tick = 0
             while !Task.isCancelled {
                 // During a call the longer one set by interruptionBegan stays in place.
                 if self?.state != .interrupted { self?.scheduleWatchdog() }
+                if tick % 10 == 0 {
+                    let device = UIDevice.current
+                    EventLog.write("battery", ["level": Double(device.batteryLevel),
+                                               "charging": device.batteryState == .charging || device.batteryState == .full,
+                                               "low_power": ProcessInfo.processInfo.isLowPowerModeEnabled,
+                                               "state": "\(self?.state ?? .idle)"])
+                }
+                tick += 1
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
             }
         }
