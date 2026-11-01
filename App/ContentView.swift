@@ -107,6 +107,7 @@ struct ContentView: View {
                 EventLog.write("scene", ["phase": "\(phase)"])
                 if phase == .active {
                     model.cancelUrgentRepeats()
+                    model.interruptionEnded()
                     if model.state == .idle { Task { await model.checkConnection() } }
                 }
             }
@@ -240,6 +241,9 @@ struct ContentView: View {
         switch model.state {
         case .idle:
             EmptyView()
+        case .interrupted:
+            Label("通話中，暫停聆聽廣播。通話結束後會自動繼續。", systemImage: "phone.fill")
+                .foregroundStyle(.orange)
         case .offline:
             Label("沒有網路，暫時聽不到廣播。網路恢復後會自動繼續聽。", systemImage: "wifi.slash")
                 .foregroundStyle(.orange)

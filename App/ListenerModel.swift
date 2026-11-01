@@ -1,4 +1,5 @@
 import AVFoundation
+import CallKit
 import Foundation
 import Network
 import ShunfengCore
@@ -41,6 +42,8 @@ final class ListenerModel: ObservableObject {
         case idle, connecting, listening
         /// Still meant to be listening, but there is no network: resumes by itself when it comes back.
         case offline
+        /// A phone call (or Siri) took the microphone: resumes by itself when it ends.
+        case interrupted
         case failed(String)
     }
 
@@ -205,6 +208,18 @@ final class ListenerModel: ObservableObject {
             Task { @MainActor in self?.networkChanged(online: online) }
         }
         network.start(queue: .main)
+        NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil,
+                                               queue: .main) { [weak self] note in
+            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let type = raw.flatMap(AVAudioSession.InterruptionType.init)
+            MainActor.assumeIsolated {
+                switch type {
+                case .began: self?.interruptionBegan()
+                case .ended: self?.interruptionEnded()
+                default: break
+                }
+            }
+        }
         NotificationCenter.default.addObserver(forName: UrgentAnswer.notification, object: nil, queue: .main) { [weak self] note in
             guard let answer = note.object as? UrgentAnswer else { return }
             let id = (note.userInfo?["heardID"] as? String).flatMap(UUID.init)
@@ -328,7 +343,7 @@ final class ListenerModel: ObservableObject {
         }
     }
 
-    var isListening: Bool { [.listening, .connecting, .offline].contains(state) }
+    var isListening: Bool { [.listening, .connecting, .offline, .interrupted].contains(state) }
 
     /// The flight has left: listening any longer only costs data, battery and model usage. Say so,
     /// so nobody thinks they are still covered.
@@ -462,7 +477,8 @@ final class ListenerModel: ObservableObject {
             }
         } else {
             connection = .noNetwork
-            if isListening, state != .offline { wentOffline() }
+            // During a call the end of the call resumes listening, and checks the network then.
+            if isListening, state != .offline, state != .interrupted { wentOffline() }
         }
     }
 
@@ -490,8 +506,50 @@ final class ListenerModel: ObservableObject {
         guard let key = apiKey else { return }
         retry?.cancel()
         reconnects = []
+        guard networkOnline else {
+            wentOffline()
+            return
+        }
         state = .connecting
         connect(apiKey: key)
+    }
+
+    // MARK: - Phone calls
+
+    /// Microphone restarts tried after a call before giving up (the call may still be releasing it).
+    private var resumeAttempts = 0
+
+    /// A call, a video call or Siri took the microphone. iOS stops our recording; pause instead of
+    /// failing, and say so quietly (the user knows they are on a call, but not that announcements are missed).
+    private func interruptionBegan() {
+        guard isListening, state != .interrupted else { return }
+        EventLog.write("interruption_began", ["state": "\(state)"])
+        dropConnection()
+        state = .interrupted
+        offlineCheck?.cancel()
+        // The usual watchdog would go off 2 minutes into a call. While the app may be paused by iOS during
+        // the call, keep one further out that says what happened.
+        scheduleWatchdog(after: 15 * 60, title: "Shunfeng 還在暫停（通話打斷收音）",
+                         body: "通話結束後如果沒有自動繼續聽，請打開 Shunfeng。")
+        notify(title: "通話中，暫停聆聽廣播", body: "通話結束後會自動繼續聽。這段時間請留意大螢幕。", quiet: true)
+    }
+
+    /// The call ended. Also called when the app is opened, since iOS doesn't promise an "ended" for every
+    /// "began".
+    func interruptionEnded() {
+        guard state == .interrupted else { return }
+        // Opening the app during the call is not the end of it (LINE and FaceTime calls show up here too).
+        guard !CXCallObserver().calls.contains(where: { !$0.hasEnded }) else { return }
+        EventLog.write("interruption_ended")
+        resumeAttempts = 0
+        Task {
+            // Give the call a moment to hand the microphone back.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard state == .interrupted else { return }
+            scheduleWatchdog()
+            notify(title: "通話結束，繼續聆聽廣播", body: "Shunfeng 又在聽廣播了。", quiet: true)
+            resume()
+        }
     }
 
     /// The service can't be reached although there is a network. Say so plainly (on screen and as a
@@ -536,22 +594,24 @@ final class ListenerModel: ObservableObject {
         watchdog?.cancel()
         watchdog = Task { [weak self] in
             while !Task.isCancelled {
-                self?.scheduleWatchdog()
+                // During a call the longer one set by interruptionBegan stays in place.
+                if self?.state != .interrupted { self?.scheduleWatchdog() }
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
             }
         }
     }
 
-    private func scheduleWatchdog() {
+    private func scheduleWatchdog(after seconds: TimeInterval = 120, title: String = "Shunfeng 已經沒在聽廣播了",
+                                  body: String = "App 被關掉或手機重新開機，現在聽不到廣播。請打開 Shunfeng 按「開始聆聽」。") {
         let content = UNMutableNotificationContent()
-        content.title = "Shunfeng 已經沒在聽廣播了"
-        content.body = "App 被關掉或手機重新開機，現在聽不到廣播。請打開 Shunfeng 按「開始聆聽」。"
+        content.title = title
+        content.body = body
         content.sound = .default
         content.interruptionLevel = .timeSensitive
         // The same identifier replaces the previous one, so there is only ever one pending.
         UNUserNotificationCenter.current().add(UNNotificationRequest(
             identifier: Self.watchdogID, content: content,
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 120, repeats: false)))
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false)))
     }
 
     private func disarmWatchdog() {
@@ -641,8 +701,21 @@ final class ListenerModel: ObservableObject {
                 EventLog.write("mic", ["chosen": self.mic.rawValue, "in_use": name])
             } catch {
                 EventLog.write("start_failed", ["error": error.localizedDescription])
-                self?.state = .failed("無法開始收音：\(error.localizedDescription)")
-                self?.stop()
+                guard let self else { return }
+                // Right after a call the microphone may not be free yet: try again a few times.
+                if self.resumeAttempts < 3, self.state == .connecting {
+                    self.resumeAttempts += 1
+                    self.dropConnection()
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        if self.state == .connecting { self.resume() }
+                    }
+                    return
+                }
+                self.state = .failed("無法開始收音：\(error.localizedDescription)。請按「重新連線」。")
+                self.stop()
+                self.notify(title: "無法收音，現在聽不到廣播",
+                            body: "麥克風可能被其他 App 佔用。請打開 Shunfeng 按「重新連線」。")
             }
         }
     }
