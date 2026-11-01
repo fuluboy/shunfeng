@@ -355,11 +355,11 @@ struct ContentView: View {
             departureRow
             HStack(spacing: 12) {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button { showingCamera = true } label: { Label(L("拍登機證"), systemImage: "camera") }
+                    Button { showingCamera = true } label: { Label(L("拍登機證", "Scan pass"), systemImage: "camera").lineLimit(1) }
                         .buttonStyle(.sfSecondary)
                 }
                 PhotosPicker(selection: $pickedPhoto, matching: .images) {
-                    Label(L("從相簿選"), systemImage: "photo")
+                    Label(L("從相簿選"), systemImage: "photo").lineLimit(1)
                 }
                 .buttonStyle(.sfSecondary)
             }
@@ -387,7 +387,7 @@ struct ContentView: View {
     @ViewBuilder private var departureRow: some View {
         if let time = model.departureTime {
             HStack {
-                DatePicker(L("起飛時間"), selection: Binding(get: { time }, set: {
+                DatePicker(L("起飛時間", "Departs"), selection: Binding(get: { time }, set: {
                     model.departureTime = $0
                     model.departureTimeEstimated = false
                 }))
