@@ -42,6 +42,14 @@ struct SettingsView: View {
                     """)
                 }
                 Section {
+                    VibrationLegend { model.tryVibration($0) }
+                        .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                } header: {
+                    Text("震動語言")
+                } footer: {
+                    Text("App 在前景時每下震 0.5 秒；在背景時改用系統震動，次數一樣。")
+                }
+                Section {
                     LabeledContent("沒有網路時", value: "暫停，恢復後自動繼續")
                 } footer: {
                     Text("進電梯、停車場斷網時會暫停，網路恢復就自動繼續聽；斷網超過 1 分鐘會通知你留意大螢幕。斷網超過 30 分鐘（多半是飛航模式）就停止聆聽並通知你。")
@@ -49,6 +57,7 @@ struct SettingsView: View {
             }
             .navigationTitle("設定")
             .navigationBarTitleDisplayMode(.inline)
+            .tint(Theme.brand)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
             }
