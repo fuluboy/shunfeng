@@ -12,24 +12,38 @@ public struct MuseSparkOpen: Sendable {
         self.apiKey = apiKey
     }
 
-    /// Mandarin needs no translation; English sentences, and Japanese (which has kana), do.
-    public static func needsTranslation(_ text: String) -> Bool {
+    /// The language the user reads.
+    public enum Target: Sendable {
+        case traditionalChinese, english
+
+        var instruction: String {
+            switch self {
+            case .traditionalChinese: return "Traditional Chinese as used in Taiwan"
+            case .english: return "English"
+            }
+        }
+    }
+
+    /// For Chinese readers: English sentences and Japanese (which has kana). For English readers: anything
+    /// with Chinese characters or kana, which covers Mandarin and Japanese.
+    public static func needsTranslation(_ text: String, into target: Target = .traditionalChinese) -> Bool {
         let scalars = text.unicodeScalars
         let kana = scalars.contains { (0x3040...0x30FF).contains($0.value) }
         let han = scalars.contains { (0x4E00...0x9FFF).contains($0.value) }
+        if target == .english { return kana || han }
         // A few words at least: a lone "CI 100" says nothing to translate.
         let words = text.split { !$0.isLetter }.filter { $0.count > 1 && $0.unicodeScalars.allSatisfy { $0.value < 0x250 } }
         return kana || (!han && words.count >= 3)
     }
 
-    public func translate(_ announcement: String) async throws -> String {
+    public func translate(_ announcement: String, into target: Target = .traditionalChinese) async throws -> String {
         let body: [String: Any] = [
             "model": Self.model,
             "reasoning_effort": "low",
             "max_tokens": 800,    // the model reasons first; less than this can leave no room for the answer
             "messages": [
                 ["role": "system", "content": "Translate this airport announcement, as heard by speech recognition, "
-                    + "into Traditional Chinese as used in Taiwan. Keep flight numbers, gate numbers and times exactly "
+                    + "into \(target.instruction). Keep flight numbers, gate numbers and times exactly "
                     + "as they appear. Don't add anything that isn't said. Reply with the translation only."],
                 ["role": "user", "content": announcement],
             ],

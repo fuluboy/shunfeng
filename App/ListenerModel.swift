@@ -113,6 +113,14 @@ final class ListenerModel: ObservableObject {
     private var departureAsk: (count: Int, at: Date)?
     /// After "繼續聆聽", don't ask about the departure time again before this.
     private var nextDepartureAsk: Date?
+    /// Chinese or English for everything the app says. Changing it redraws the screen (see ContentView).
+    @Published var language: AppLanguage = AppLanguage.current {
+        didSet {
+            UserDefaults.standard.set(language.rawValue, forKey: AppLanguage.key)
+            AppDelegate.registerNotificationActions()
+            EventLog.write("language", ["language": language.rawValue])
+        }
+    }
     /// Whether the service can be reached right now. The start button waits for this.
     @Published var connection: Connection = .checking
     enum Connection { case checking, ok, noNetwork, unreachable }
@@ -155,10 +163,10 @@ final class ListenerModel: ObservableObject {
 
     func readBoardingPass(_ image: UIImage) async {
         guard let key = apiKey, let jpeg = PhotoPrep.jpeg(image) else {
-            passStatus = "沒辦法讀這張照片。"
+            passStatus = L("沒辦法讀這張照片。")
             return
         }
-        passStatus = "Muse Spark 讀取登機證中…"
+        passStatus = L("Muse Spark 讀取登機證中…")
         readingPass = true
         defer { readingPass = false }
         let started = Date()
@@ -169,7 +177,8 @@ final class ListenerModel: ObservableObject {
                                              "seconds": Date().timeIntervalSince(started),
                                              "handwritten": scannedPass?.handwrittenChanges ?? ""])
         } catch {
-            passStatus = "讀不出登機證（\(error.localizedDescription)）。可以重拍，或直接輸入班號。"
+            passStatus = L("讀不出登機證（\(error.localizedDescription)）。可以重拍，或直接輸入班號。",
+                           "Couldn't read the boarding pass (\(error.localizedDescription)). Retake it, or type the flight.")
             EventLog.write("boarding_pass_failed", ["error": error.localizedDescription])
         }
     }
@@ -178,7 +187,10 @@ final class ListenerModel: ObservableObject {
     func useScannedPass() {
         guard let pass = scannedPass else { return }
         if let code = pass.flightCode { flightCode = code }
-        if let name = pass.destinationName { destination = name }
+        // The destination field takes either language; English readers get the English city name.
+        if let name = pass.destinationName {
+            destination = language == .en ? (Destinations.canonical(name) ?? name) : name
+        }
         if let departure = pass.departure() {
             departureTime = departure.date
             departureTimeEstimated = departure.estimated
@@ -239,7 +251,7 @@ final class ListenerModel: ObservableObject {
         // opens the app and removes the notification, so its text is easy to miss.
         if let since = UserDefaults.standard.object(forKey: Self.listeningSinceKey) as? Date {
             EventLog.write("unexpected_end", ["listening_since": since.ISO8601Format()])
-            stopNotice = "上次的聆聽意外中斷了（App 被關閉或手機重新開機），中斷後的廣播都沒有聽到。請按「開始聆聽」繼續。"
+            stopNotice = L("上次的聆聽意外中斷了（App 被關閉或手機重新開機），中斷後的廣播都沒有聽到。請按「開始聆聽」繼續。")
             UserDefaults.standard.removeObject(forKey: Self.listeningSinceKey)
         }
         // Not listening now, so a watchdog left from that session would be a false alarm.
@@ -285,7 +297,7 @@ final class ListenerModel: ObservableObject {
 
     func start() {
         guard let key = Bundle.main.object(forInfoDictionaryKey: "MetaAPIKey") as? String, !key.isEmpty, !key.hasPrefix("$(") else {
-            state = .failed("這個版本沒有 API key，請用設定好 META_API_KEY 的環境重新建置。")
+            state = .failed(L("這個版本沒有 API key，請用設定好 META_API_KEY 的環境重新建置。"))
             return
         }
         state = .connecting
@@ -297,7 +309,7 @@ final class ListenerModel: ObservableObject {
             // behind real time, and a permission dialog would stall the audio for as long as it is open.
             guard await AVAudioApplication.requestRecordPermission() else {
                 EventLog.write("mic_denied")
-                state = .failed("需要麥克風權限才能聽廣播。請到「設定 → 隱私權與安全性 → 麥克風」打開 Shunfeng。")
+                state = .failed(L("需要麥克風權限才能聽廣播。請到「設定 → 隱私權與安全性 → 麥克風」打開 Shunfeng。"))
                 return
             }
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
@@ -346,12 +358,13 @@ final class ListenerModel: ObservableObject {
             flightDataTime = Date()
             guard let found = ADIP.find(code, in: flights) else {
                 flight = nil
-                flightDataMessage = "桃園機場今天的航班資料裡找不到 \(code)。目前只能核對桃園的航班，廣播判讀照常運作。"
+                flightDataMessage = L("桃園機場今天的航班資料裡找不到 \(code)。目前只能核對桃園的航班，廣播判讀照常運作。",
+                                      "\(code) isn't in Taoyuan Airport's flight data today. Only Taoyuan flights can be checked; listening works as usual.")
                 EventLog.write("adip", ["flight": code, "found": false])
                 return
             }
             flightDataMessage = nil
-            if destination.isEmpty { destination = found.placeZh }
+            if destination.isEmpty { destination = language == .en ? found.placeEn : found.placeZh }
             if alertOnChange, let old = flight, old.code == found.code {
                 for change in Verification.changes(from: old, to: found) {
                     // A cancellation or a move to another day gets its own message and question below.
@@ -374,7 +387,8 @@ final class ListenerModel: ObservableObject {
                 flightEnded(found)
             }
         } catch {
-            flightDataMessage = "暫時拿不到航班資料（\(error.localizedDescription)），廣播判讀照常運作。"
+            flightDataMessage = L("暫時拿不到航班資料（\(error.localizedDescription)），廣播判讀照常運作。",
+                                  "Flight data isn't available right now (\(error.localizedDescription)); listening works as usual.")
             EventLog.write("adip_failed", ["error": error.localizedDescription])
         }
     }
@@ -386,12 +400,13 @@ final class ListenerModel: ObservableObject {
     private func flightDeparted() {
         let code = flight?.code ?? flightCode
         guard autoStop else {
-            notify(title: "航班資料：\(code) 已起飛", body: "自動停止已關閉，Shunfeng 會繼續聆聽，直到你按停止。")
+            notify(title: L("航班資料：\(code) 已起飛", "Flight data: \(code) has departed"), body: L("自動停止已關閉，Shunfeng 會繼續聆聽，直到你按停止。"))
             return
         }
         EventLog.write("auto_stop", ["flight": code, "reason": "departed"])
-        stopWithNotice("你的班機已起飛，已自動停止聆聽。",
-                       body: "航班資料顯示 \(code) 已出發，Shunfeng 不再收音。還在機場的話，打開 App 按開始就會繼續聽。")
+        stopWithNotice(L("你的班機已起飛，已自動停止聆聽。"),
+                       body: L("航班資料顯示 \(code) 已出發，Shunfeng 不再收音。還在機場的話，打開 App 按開始就會繼續聽。",
+                               "The flight data shows \(code) has left, so Shunfeng stopped listening. If you're still at the airport, open the app and tap Start."))
     }
 
     /// Stops listening on its own and says why, on screen and as a notification.
@@ -407,10 +422,13 @@ final class ListenerModel: ObservableObject {
     private func flightEnded(_ f: ADIPFlight) {
         let reason: (key: String, title: String, message: String)
         if f.isCancelled {
-            reason = ("cancel", "你的班機已取消", "航班資料顯示 \(f.code) 已取消。請看大螢幕，或問櫃台怎麼改票。")
+            reason = ("cancel", L("你的班機已取消"), L("航班資料顯示 \(f.code) 已取消。請看大螢幕，或問櫃台怎麼改票。",
+                                                     "The flight data shows \(f.code) is cancelled. Check the board, or ask at the counter about rebooking."))
         } else if f.isMovedToNextDay {
-            reason = ("next_day", "你的班機改到 \(f.estimated.dropFirst(5).prefix(5).replacingOccurrences(of: "-", with: "/")) 起飛",
-                      "航班資料顯示 \(f.code) 預計 \(f.estimated.dropFirst(5).replacingOccurrences(of: "-", with: "/")) 起飛，不是今天。")
+            let day = f.estimated.dropFirst(5).prefix(5).replacingOccurrences(of: "-", with: "/")
+            let when = f.estimated.dropFirst(5).replacingOccurrences(of: "-", with: "/")
+            reason = ("next_day", L("你的班機改到 \(day) 起飛", "Your flight now leaves on \(day)"),
+                      L("航班資料顯示 \(f.code) 預計 \(when) 起飛，不是今天。", "The flight data shows \(f.code) leaving \(when), not today."))
         } else {
             return
         }
@@ -419,7 +437,7 @@ final class ListenerModel: ObservableObject {
         EventLog.write("flight_ended", ["flight": f.code, "reason": reason.key])
         question = .flightEnded(title: reason.title, message: reason.message)
         haptics.play(f.isCancelled ? .cancelled : .change)
-        let more = autoStop ? "按「我知道了」之後，會問你要不要停止聆聽。" : ""
+        let more = autoStop ? L("按「我知道了」之後，會問你要不要停止聆聽。") : ""
         notify(title: reason.title, body: reason.message + more, category: UrgentAnswer.flightEndCategory)
     }
 
@@ -427,7 +445,7 @@ final class ListenerModel: ObservableObject {
     func flightEndSeen(inApp: Bool) {
         question = nil
         guard autoStop, isListening else { return }
-        let reason = "班機已取消或改期，今天應該不需要再聽廣播了。"
+        let reason = L("班機已取消或改期，今天應該不需要再聽廣播了。")
         if inApp {
             // Let the first alert finish closing before the next one opens.
             Task {
@@ -436,7 +454,7 @@ final class ListenerModel: ObservableObject {
             }
         } else {
             question = .stopListening(reason: reason)
-            notify(title: "要停止聆聽嗎？", body: reason, category: UrgentAnswer.askStopCategory)
+            notify(title: L("要停止聆聽嗎？"), body: reason, category: UrgentAnswer.askStopCategory)
         }
     }
 
@@ -444,7 +462,7 @@ final class ListenerModel: ObservableObject {
         EventLog.write("auto_stop", ["reason": "user_said_stop"])
         userStop()
         question = nil
-        stopNotice = "已依你的選擇停止聆聽。"
+        stopNotice = L("已依你的選擇停止聆聽。")
     }
 
     func keepListening() {
@@ -477,8 +495,8 @@ final class ListenerModel: ObservableObject {
                 askAboutDeparture(departure, count: 2)
             } else if ask.count == 2, waited >= 15 * 60 {
                 EventLog.write("auto_stop", ["reason": "no_answer"])
-                stopWithNotice("沒有收到回應，已自動停止聆聽。",
-                               body: "已過起飛時間，兩次詢問都沒有回應。還在機場的話，打開 App 按開始就會繼續聽。")
+                stopWithNotice(L("沒有收到回應，已自動停止聆聽。"),
+                               body: L("已過起飛時間，兩次詢問都沒有回應。還在機場的話，打開 App 按開始就會繼續聽。"))
             }
             return
         }
@@ -489,12 +507,14 @@ final class ListenerModel: ObservableObject {
     private func askAboutDeparture(_ departure: Date, count: Int) {
         departureAsk = (count, Date())
         let time = departure.formatted(date: .omitted, time: .shortened)
-        let reason = departure > Date() ? "快到起飛時間 \(time) 了" : "已過起飛時間 \(time)"
+        let reason = departure > Date() ? L("快到起飛時間 \(time) 了", "It's almost departure time (\(time))")
+                                        : L("已過起飛時間 \(time)", "Departure time (\(time)) has passed")
         EventLog.write("ask_stop", ["reason": "departure_time", "count": count])
-        question = .stopListening(reason: "\(reason)，但沒有航班資料能確認班機是否已起飛。")
-        notify(title: "\(reason)，要停止聆聽嗎？",
-               body: count == 1 ? "已經上飛機就可以停止。沒有回應的話，一小時後會再問一次。"
-                                : "15 分鐘內沒有回應，就會自動停止聆聽。",
+        question = .stopListening(reason: L("\(reason)，但沒有航班資料能確認班機是否已起飛。",
+                                            "\(reason), and there's no flight data to tell whether it has left."))
+        notify(title: L("\(reason)，要停止聆聽嗎？", "\(reason). Stop listening?"),
+               body: count == 1 ? L("已經上飛機就可以停止。沒有回應的話，一小時後會再問一次。")
+                                : L("15 分鐘內沒有回應，就會自動停止聆聽。"),
                category: UrgentAnswer.askStopCategory)
     }
 
@@ -572,9 +592,9 @@ final class ListenerModel: ObservableObject {
         offlineCheck?.cancel()
         // The usual watchdog would go off 2 minutes into a call. While the app may be paused by iOS during
         // the call, keep one further out that says what happened.
-        scheduleWatchdog(after: 15 * 60, title: "Shunfeng 還在暫停（通話打斷收音）",
-                         body: "通話結束後如果沒有自動繼續聽，請打開 Shunfeng。")
-        notify(title: "通話中，暫停聆聽廣播", body: "通話結束後會自動繼續聽。這段時間請留意大螢幕。", silent: true)
+        scheduleWatchdog(after: 15 * 60, title: L("Shunfeng 還在暫停（通話打斷收音）"),
+                         body: L("通話結束後如果沒有自動繼續聽，請打開 Shunfeng。"))
+        notify(title: L("通話中，暫停聆聽廣播"), body: L("通話結束後會自動繼續聽。這段時間請留意大螢幕。"), silent: true)
     }
 
     /// The call ended. Also called when the app is opened, since iOS doesn't promise an "ended" for every
@@ -594,7 +614,7 @@ final class ListenerModel: ObservableObject {
             resumeScheduled = false
             guard state == .interrupted else { return }
             scheduleWatchdog()
-            notify(title: "通話結束，繼續聆聽廣播", body: "Shunfeng 又在聽廣播了。", silent: true)
+            notify(title: L("通話結束，繼續聆聽廣播"), body: L("Shunfeng 又在聽廣播了。"), silent: true)
             resume()
         }
     }
@@ -603,11 +623,11 @@ final class ListenerModel: ObservableObject {
     /// notification), keep the microphone on so the app stays awake, and retry every 30 seconds.
     private func connectionFailed() {
         dropConnection()
-        state = .failed("連不上語音辨識服務，現在聽不到廣播。請確認網路；機場 Wi-Fi 可能要先打開瀏覽器按「同意」。App 會每 30 秒自動重試，也可以按「重新連線」。")
+        state = .failed(L("連不上語音辨識服務，現在聽不到廣播。請確認網路；機場 Wi-Fi 可能要先打開瀏覽器按「同意」。App 會每 30 秒自動重試，也可以按「重新連線」。"))
         EventLog.write("connection_failed", ["error": lastError ?? ""])
         haptics.play(.change)
-        notify(title: "連不上網路，現在聽不到廣播",
-               body: "請確認網路；機場 Wi-Fi 可能要先打開瀏覽器按「同意」。App 會自動重試，連上後繼續聽。")
+        notify(title: L("連不上網路，現在聽不到廣播"),
+               body: L("請確認網路；機場 Wi-Fi 可能要先打開瀏覽器按「同意」。App 會自動重試，連上後繼續聽。"))
         retry?.cancel()
         retry = Task { [weak self] in
             for _ in 0..<60 {
@@ -615,7 +635,7 @@ final class ListenerModel: ObservableObject {
                 guard !Task.isCancelled, let self, case .failed = self.state else { return }
                 if self.networkOnline, await self.checkConnection() {
                     EventLog.write("connection_restored")
-                    self.notify(title: "已重新連上，繼續聆聽", body: "Shunfeng 又在聽廣播了。")
+                    self.notify(title: L("已重新連上，繼續聆聽"), body: L("Shunfeng 又在聽廣播了。"))
                     self.resume()
                     return
                 }
@@ -662,8 +682,8 @@ final class ListenerModel: ObservableObject {
         }
     }
 
-    private func scheduleWatchdog(after seconds: TimeInterval = 120, title: String = "Shunfeng 已經沒在聽廣播了",
-                                  body: String = "App 被關掉或手機重新開機，現在聽不到廣播。請打開 Shunfeng 按「開始聆聽」。") {
+    private func scheduleWatchdog(after seconds: TimeInterval = 120, title: String = L("Shunfeng 已經沒在聽廣播了"),
+                                  body: String = L("App 被關掉或手機重新開機，現在聽不到廣播。請打開 Shunfeng 按「開始聆聽」。")) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -688,25 +708,25 @@ final class ListenerModel: ObservableObject {
         offlineCheck = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 60_000_000_000)
             guard !Task.isCancelled, self?.state == .offline else { return }
-            self?.notify(title: "沒有網路，暫時聽不到廣播",
-                         body: "網路恢復後會自動繼續聽。這段時間請留意大螢幕。")
+            self?.notify(title: L("沒有網路，暫時聽不到廣播"),
+                         body: L("網路恢復後會自動繼續聽。這段時間請留意大螢幕。"))
             try? await Task.sleep(nanoseconds: UInt64((Self.offlineStopAfter - 60) * 1_000_000_000))
             guard !Task.isCancelled, self?.state == .offline else { return }
             EventLog.write("auto_stop", ["reason": "offline"])
-            self?.stopWithNotice("沒有網路已超過 30 分鐘（可能是飛航模式），已停止聆聽。",
-                                 body: "還在機場的話，恢復網路後打開 App 按開始就會繼續聽。")
+            self?.stopWithNotice(L("沒有網路已超過 30 分鐘（可能是飛航模式），已停止聆聽。"),
+                                 body: L("還在機場的話，恢復網路後打開 App 按開始就會繼續聽。"))
         }
     }
 
     private func dataChanged(_ change: Verification.DataChange) {
         let text: String
         switch change {
-        case .gate(_, let to): text = "航班資料：登機門改到 \(to)"
-        case .status(_, let to): text = "航班資料：班機狀態變成「\(to)」"
+        case .gate(_, let to): text = L("航班資料：登機門改到 \(to)", "Flight data: gate changed to \(to)")
+        case .status(_, let to): text = L("航班資料：班機狀態變成「\(to)」", "Flight data: status is now \u{201C}\(to)\u{201D}")
         }
         dataNotice = (text, Date())
         haptics.play(.change)
-        notify(title: text, body: "這是機場航班資料的變化，廣播可能沒聽到。請看大螢幕確認。")
+        notify(title: text, body: L("這是機場航班資料的變化，廣播可能沒聽到。請看大螢幕確認。"))
         EventLog.write("adip_change", ["text": text])
     }
 
@@ -786,10 +806,11 @@ final class ListenerModel: ObservableObject {
                     }
                     return
                 }
-                self.state = .failed("無法開始收音：\(error.localizedDescription)。請按「重新連線」。")
+                self.state = .failed(L("無法開始收音：\(error.localizedDescription)。請按「重新連線」。",
+                                       "Can't start the microphone: \(error.localizedDescription). Tap \"Reconnect\"."))
                 self.stop()
-                self.notify(title: "無法收音，現在聽不到廣播",
-                            body: "麥克風可能被其他 App 佔用。請打開 Shunfeng 按「重新連線」。")
+                self.notify(title: L("無法收音，現在聽不到廣播"),
+                            body: L("麥克風可能被其他 App 佔用。請打開 Shunfeng 按「重新連線」。"))
             }
         }
     }
@@ -879,8 +900,9 @@ final class ListenerModel: ObservableObject {
             heard[i].conflictingGate = otherGate
             heard[i].reading.gateIsCertain = false
             haptics.play(.maybe)
-            notify(title: "登機門不確定，請看大螢幕",
-                   body: "前後兩次廣播聽到不同的登機門（\(heard[i].reading.gate ?? "?") 和 \(otherGate)）。",
+            notify(title: L("登機門不確定，請看大螢幕"),
+                   body: L("前後兩次廣播聽到不同的登機門（\(heard[i].reading.gate ?? "?") 和 \(otherGate)）。",
+                            "Two announcements gave different gates (\(heard[i].reading.gate ?? "?") and \(otherGate))."),
                    heardID: heard[i].id)
         } else if UIApplication.shared.applicationState != .active {
             alert(heard[i], repeatCount: heard[i].confirmations)
@@ -948,10 +970,11 @@ final class ListenerModel: ObservableObject {
             certainty = .sure
         case .mine:
             certainty = .maybe
-            note = "聽到你的班號，但聽不清楚是什麼消息。"
+            note = L("聽到你的班號，但聽不清楚是什麼消息。")
         case .destinationConflict(let heardPlaces):
             certainty = .maybe
-            note = "聽到 \(reading.flight ?? "")，但廣播說的目的地是 \(heardPlaces.joined(separator: "、"))，跟你的不同。"
+            note = L("聽到 \(reading.flight ?? "")，但廣播說的目的地是 \(heardPlaces.joined(separator: "、"))，跟你的不同。",
+                     "Heard \(reading.flight ?? ""), but the announcement said \(heardPlaces.joined(separator: ", ")), not your destination.")
         case .notMine:
             break
         }
@@ -990,14 +1013,15 @@ final class ListenerModel: ObservableObject {
     /// per announcement. It arrives a few seconds after the alert and never changes it: the alert must not
     /// wait on, or depend on, a translation.
     func translate(_ item: Heard) {
-        guard MuseSparkOpen.needsTranslation(item.original),
+        let target: MuseSparkOpen.Target = language == .en ? .english : .traditionalChinese
+        guard MuseSparkOpen.needsTranslation(item.original, into: target),
               let key = Bundle.main.object(forInfoDictionaryKey: "BasetenAPIKey") as? String,
               !key.isEmpty, !key.hasPrefix("$(") else { return }
         let text = item.original
         Task {
             let started = Date()
             do {
-                let translation = try await MuseSparkOpen(apiKey: key).translate(text)
+                let translation = try await MuseSparkOpen(apiKey: key).translate(text, into: target)
                 // The card may have been merged with a later turn meanwhile; that text gets its own translation.
                 guard let i = heard.firstIndex(where: { $0.id == item.id && $0.original == text }) else { return }
                 heard[i].translation = translation
@@ -1017,7 +1041,7 @@ final class ListenerModel: ObservableObject {
             let boardingCall = [.boarding, .finalCall].contains(event)
             if atGate && boardingCall {
                 // Already at the gate: note it without buzzing or repeating.
-                notify(title: "（你已在登機門）\(title)", body: item.original, quiet: true)
+                notify(title: L("（你已在登機門）\(title)", "(You're at the gate) \(title)"), body: item.original, quiet: true)
                 return
             }
             if atGate && [.gateChange, .delay, .timeChange, .cancel].contains(event) {
@@ -1025,11 +1049,11 @@ final class ListenerModel: ObservableObject {
                 EventLog.write("at_gate_cleared", ["event": event?.rawValue ?? ""])
             }
             if let event { haptics.play(Haptics.Level(event)) }
-            notify(title: repeatCount > 1 ? "\(title)（第 \(repeatCount) 次廣播）" : title, body: item.original,
+            notify(title: repeatCount > 1 ? L("\(title)（第 \(repeatCount) 次廣播）", "\(title) (announced \(repeatCount) times)") : title, body: item.original,
                    heardID: item.id, urgent: boardingCall)
         case .maybe:
             haptics.play(.maybe)
-            notify(title: "可能跟你的班機有關", body: item.note ?? item.original, heardID: item.id)
+            notify(title: L("可能跟你的班機有關"), body: item.note ?? item.original, heardID: item.id)
         case .notYours:
             break
         }
@@ -1071,7 +1095,7 @@ final class ListenerModel: ObservableObject {
         guard urgent, UIApplication.shared.applicationState != .active else { return }
         for n in 1...4 {
             let again = content.mutableCopy() as! UNMutableNotificationContent
-            again.title = "提醒：\(title)"
+            again.title = L("提醒：\(title)", "Reminder: \(title)")
             again.sound = .default
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(30 * n), repeats: false)
             center.add(UNNotificationRequest(identifier: Self.urgentRepeatPrefix + UUID().uuidString,
@@ -1098,31 +1122,39 @@ final class ListenerModel: ObservableObject {
     // MARK: - Wording
 
     /// The gate as shown in a headline; an uncertain one says so instead of looking definite.
-    private static func gate(_ r: AnnouncementReading) -> String? {
-        r.gate.map { r.gateIsCertain ? $0 : "\($0)（待確認）" }
+    private static func gate(_ r: AnnouncementReading, _ lang: AppLanguage) -> String? {
+        r.gate.map { r.gateIsCertain ? $0 : (lang == .zh ? "\($0)（待確認）" : "\($0) (unconfirmed)") }
     }
 
     /// Headline for a card or notification: when the gate wasn't heard but the flight data has one,
     /// it is shown and labelled as coming from the data.
-    static func headline(for item: Heard) -> String {
+    /// `lang`: the app's language, except on the staff card, which is always Chinese for local staff.
+    static func headline(for item: Heard, in lang: AppLanguage = .current) -> String {
         var r = item.reading
         if r.gate == nil, case .fromData(let g)? = item.verification?.gate {
-            r.gate = "\(g)（航班資料）"
+            r.gate = lang == .zh ? "\(g)（航班資料）" : "\(g) (flight data)"
             r.gateIsCertain = true
         }
-        return headline(for: r)
+        return headline(for: r, in: lang)
     }
 
-    static func headline(for r: AnnouncementReading) -> String {
+    static func headline(for r: AnnouncementReading, in lang: AppLanguage = .current) -> String {
+        let zh = lang == .zh
+        let g = gate(r, lang)
         switch r.event {
-        case .gateChange: return gate(r).map { "登機門改到 \($0)" } ?? "登機門有變更（沒聽清楚是哪個門）"
-        case .delay: return r.time.map { "班機延誤，新時間 \($0)" } ?? "班機延誤"
-        case .timeChange: return r.time.map { "起飛提前到 \($0)！" } ?? "起飛時間提前！"
-        case .boarding: return gate(r).map { "開始登機・\($0) 登機門" } ?? "開始登機"
-        case .finalCall: return gate(r).map { "最後登機！\($0) 號登機門" } ?? "最後登機廣播！"
-        case .cancel: return "班機取消"
-        case .nameCall: return "廣播在找人，可能是你"
-        case .info, nil: return "有一則廣播提到你的班號"
+        case .gateChange:
+            return g.map { zh ? "登機門改到 \($0)" : "Gate changed to \($0)" } ?? (zh ? "登機門有變更（沒聽清楚是哪個門）" : "Gate changed (the new gate wasn't clear)")
+        case .delay:
+            return r.time.map { zh ? "班機延誤，新時間 \($0)" : "Delayed, new time \($0)" } ?? (zh ? "班機延誤" : "Flight delayed")
+        case .timeChange:
+            return r.time.map { zh ? "起飛提前到 \($0)！" : "Departure moved up to \($0)!" } ?? (zh ? "起飛時間提前！" : "Departure moved earlier!")
+        case .boarding:
+            return g.map { zh ? "開始登機・\($0) 登機門" : "Now boarding · Gate \($0)" } ?? (zh ? "開始登機" : "Now boarding")
+        case .finalCall:
+            return g.map { zh ? "最後登機！\($0) 號登機門" : "Final call! Gate \($0)" } ?? (zh ? "最後登機廣播！" : "Final call!")
+        case .cancel: return zh ? "班機取消" : "Flight cancelled"
+        case .nameCall: return zh ? "廣播在找人，可能是你" : "A passenger is being paged, maybe you"
+        case .info, nil: return zh ? "有一則廣播提到你的班號" : "An announcement mentioned your flight"
         }
     }
 

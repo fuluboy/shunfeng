@@ -114,10 +114,10 @@ extension Haptics.Level {
 
     var meaning: String {
         switch self {
-        case .maybe: "可能"
-        case .change: "變更"
-        case .actNow: "馬上行動"
-        case .cancelled: "取消"
+        case .maybe: L("可能")
+        case .change: L("變更")
+        case .actNow: L("馬上行動")
+        case .cancelled: L("取消", "Cancelled")
         }
     }
 
@@ -130,7 +130,7 @@ extension Haptics.Level {
         }
     }
 
-    var spoken: String { self == .cancelled ? "長震" : "震 \(dots) 下" }
+    var spoken: String { self == .cancelled ? L("長震") : L("震 \(dots) 下", dots == 1 ? "1 buzz" : "\(dots) buzzes") }
 
     static let all: [Haptics.Level] = [.maybe, .change, .actNow, .cancelled]
 }
@@ -241,9 +241,9 @@ struct Chip: View {
 /// Which language an announcement was in, for the "14:02 日文廣播" line.
 enum AnnouncementLanguage {
     static func name(of text: String) -> String {
-        if text.range(of: "[\\p{Hiragana}\\p{Katakana}]", options: .regularExpression) != nil { return "日文" }
+        if text.range(of: "[\\p{Hiragana}\\p{Katakana}]", options: .regularExpression) != nil { return L("日文") }
         let latin = text.unicodeScalars.filter { ("a"..."z").contains($0) || ("A"..."Z").contains($0) }.count
         let han = text.unicodeScalars.filter { $0.properties.isIdeographic }.count
-        return latin > han ? "英文" : "中文"
+        return latin > han ? L("英文") : L("中文")
     }
 }

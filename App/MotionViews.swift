@@ -46,7 +46,10 @@ struct ListeningRing: View {
             Circle()
                 .fill(detected ? Theme.brand : Theme.brandTint)
                 .overlay(Circle().strokeBorder(Theme.brand, lineWidth: 2))
-            Text("聽")
+            // The character 聽 ("listen") in Chinese; an ear in English.
+            Group {
+                if AppLanguage.current == .zh { Text("聽") } else { Image(systemName: "ear") }
+            }
                 .font(Theme.title)
                 .foregroundStyle(detected ? Theme.onBrand : Theme.textPrimary)
         }
@@ -54,7 +57,7 @@ struct ListeningRing: View {
         .frame(width: size * 1.9, height: size * 1.9)
         .animation(reduceMotion ? nil : .easeOut(duration: Theme.slow), value: detected)
         .accessibilityElement()
-        .accessibilityLabel(detected ? "聽到可能相關的廣播，正在核對" : "正在聽機場廣播")
+        .accessibilityLabel(detected ? L("聽到可能相關的廣播，正在核對") : L("正在聽機場廣播"))
     }
 }
 
@@ -122,7 +125,7 @@ struct VibrationLegend: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("震動代表什麼（點一下試試）").font(Theme.caption).foregroundStyle(Theme.textSecondary)
+            Text(L("震動代表什麼（點一下試試）")).font(Theme.caption).foregroundStyle(Theme.textSecondary)
             HStack(spacing: 8) {
                 ForEach(Haptics.Level.all, id: \.self) { level in
                     Button {
@@ -145,7 +148,7 @@ struct VibrationLegend: View {
                             .strokeBorder(playing == level ? level.color : Theme.border, lineWidth: playing == level ? 2 : 1))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(level.spoken)：\(level.meaning)。點一下試試")
+                    .accessibilityLabel(L("\(level.spoken)：\(level.meaning)。點一下試試", "\(level.spoken): \(level.meaning). Tap to try"))
                 }
             }
         }
@@ -296,21 +299,21 @@ struct StatusBanner: View {
 
     private var title: String {
         switch kind {
-        case .listening: "正在聆聽廣播"
-        case .connecting: "連線中…"
-        case .paused: "通話中，暫停聆聽"
-        case .offline: "沒有網路"
-        case .failed: "連不上語音服務"
-        case .stopped: "已停止聆聽"
+        case .listening: L("正在聆聽廣播")
+        case .connecting: L("連線中…")
+        case .paused: L("通話中，暫停聆聽")
+        case .offline: L("沒有網路")
+        case .failed: L("連不上語音服務")
+        case .stopped: L("已停止聆聽")
         }
     }
 
     private var subtitle: String {
         switch kind {
-        case .listening(let mic): mic.map { "收音：\($0)・鎖屏也會繼續聽" } ?? "鎖屏也會繼續聽"
-        case .connecting: "馬上就好"
-        case .paused: "通話結束後自動恢復，這段時間請看大螢幕"
-        case .offline: "現在聽不到廣播，請看大螢幕。網路恢復後自動繼續"
+        case .listening(let mic): mic.map { L("收音：\($0)・鎖屏也會繼續聽", "Mic: \($0) · keeps listening when locked") } ?? L("鎖屏也會繼續聽")
+        case .connecting: L("馬上就好")
+        case .paused: L("通話結束後自動恢復，這段時間請看大螢幕")
+        case .offline: L("現在聽不到廣播，請看大螢幕。網路恢復後自動繼續")
         case .failed(let message): message
         case .stopped(let message): message
         }
@@ -318,9 +321,9 @@ struct StatusBanner: View {
 
     private var actionTitle: String? {
         switch kind {
-        case .listening: "停止"
-        case .failed: "重新連線"
-        case .stopped: "開始聆聽"
+        case .listening: L("停止")
+        case .failed: L("重新連線")
+        case .stopped: L("開始聆聽")
         default: nil
         }
     }

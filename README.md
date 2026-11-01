@@ -22,6 +22,8 @@ Built for the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/m
   stop. Without flight data, it asks around the departure time and stops if nobody answers. Can be turned off.
 - **Reads your boarding pass** from a photo, including handwritten changes, so you don't type the flight.
 - **Translates** English and Japanese announcements into Traditional Chinese as a reading aid.
+- **Speaks your language**: the whole app, its notifications and its translations switch between Traditional
+  Chinese and English in Settings. Announcements are translated into the language you pick.
 - **Helps you ask** with a large bilingual card to show airport staff.
 
 ## Meta models

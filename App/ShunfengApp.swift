@@ -34,22 +34,27 @@ enum UrgentAnswer: String {
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        Self.registerNotificationActions()
+        return true
+    }
+
+    /// The buttons on notifications, in the app's language. Registered again when the language changes.
+    static func registerNotificationActions() {
         let center = UNUserNotificationCenter.current()
-        center.delegate = self
         // Boarding and final calls repeat until answered. These buttons work from the lock screen,
         // so someone already sitting at the gate can stop them without opening the app.
-        let gotIt = UNNotificationAction(identifier: UrgentAnswer.gotIt.rawValue, title: "我知道了")
-        let atGate = UNNotificationAction(identifier: UrgentAnswer.atGate.rawValue, title: "我已經在登機門了")
-        let seen = UNNotificationAction(identifier: UrgentAnswer.flightEndSeen.rawValue, title: "我知道了")
-        let stop = UNNotificationAction(identifier: UrgentAnswer.stopListening.rawValue, title: "停止聆聽")
-        let keep = UNNotificationAction(identifier: UrgentAnswer.keepListening.rawValue, title: "繼續聆聽")
+        let gotIt = UNNotificationAction(identifier: UrgentAnswer.gotIt.rawValue, title: L("我知道了"))
+        let atGate = UNNotificationAction(identifier: UrgentAnswer.atGate.rawValue, title: L("我已經在登機門了"))
+        let seen = UNNotificationAction(identifier: UrgentAnswer.flightEndSeen.rawValue, title: L("我知道了"))
+        let stop = UNNotificationAction(identifier: UrgentAnswer.stopListening.rawValue, title: L("停止聆聽"))
+        let keep = UNNotificationAction(identifier: UrgentAnswer.keepListening.rawValue, title: L("繼續聆聽"))
         center.setNotificationCategories([
             UNNotificationCategory(identifier: UrgentAnswer.flightEndCategory, actions: [seen], intentIdentifiers: []),
             UNNotificationCategory(identifier: UrgentAnswer.askStopCategory, actions: [stop, keep], intentIdentifiers: []),
             UNNotificationCategory(identifier: UrgentAnswer.boardingCategory, actions: [gotIt, atGate], intentIdentifiers: []),
             UNNotificationCategory(identifier: UrgentAnswer.generalCategory, actions: [gotIt], intentIdentifiers: []),
         ])
-        return true
     }
 
     /// Shows alerts as banners even while the app is open, so a vibration always comes with text.

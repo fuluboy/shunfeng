@@ -23,7 +23,13 @@ struct ContentView: View {
 
     private var modalItem: Heard? { modalID.flatMap { id in model.heard.first { $0.id == id } } }
 
+    // Text is looked up when views are drawn, so a language change rebuilds the screen. The model (and
+    // listening) lives above it and carries on.
     var body: some View {
+        page.id(model.language)
+    }
+
+    private var page: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -38,17 +44,17 @@ struct ContentView: View {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(notice.text).font(Theme.label)
-                                Text("這是機場航班資料的變化，廣播可能沒聽到。請看大螢幕確認。").font(Theme.body)
+                                Text(L("這是機場航班資料的變化，廣播可能沒聽到。請看大螢幕確認。")).font(Theme.body)
                             }
                         } icon: { GlyphBadge(symbol: "airplane", color: Theme.info) }
                         .sfNote(Theme.info, Theme.infoBg)
                     }
                     if model.atGate {
                         HStack {
-                            Label("你已在登機門，登機廣播不再震動提醒", systemImage: "checkmark.circle.fill")
+                            Label(L("你已在登機門，登機廣播不再震動提醒"), systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(Theme.confirmed)
                             Spacer()
-                            Button("取消") { model.atGate = false }.buttonStyle(.sfText)
+                            Button(L("取消", "Undo")) { model.atGate = false }.buttonStyle(.sfText)
                         }
                         .font(Theme.body)
                     }
@@ -69,7 +75,7 @@ struct ContentView: View {
                         NavigationLink {
                             BroadcastLog(model: model)
                         } label: {
-                            Label("看廣播紀錄（\(model.heard.count)）", systemImage: "list.bullet.rectangle")
+                            Label(L("看廣播紀錄（\(model.heard.count)）", "Announcement log (\(model.heard.count))"), systemImage: "list.bullet.rectangle")
                         }
                         .buttonStyle(.sfSecondary)
                     }
@@ -87,22 +93,22 @@ struct ContentView: View {
                     HStack(spacing: 8) {
                         Image("LogoMark").resizable().frame(width: 26, height: 26)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
-                        Text("順風 Shunfeng").font(Theme.label).foregroundStyle(Theme.textPrimary)
+                        Text(L("順風 Shunfeng")).font(Theme.label).foregroundStyle(Theme.textPrimary)
                     }
                     .accessibilityElement(children: .combine)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("設定", systemImage: "gearshape") { showingSettings = true }
+                    Button(L("設定"), systemImage: "gearshape") { showingSettings = true }
                 }
             }
             .sheet(isPresented: $showingSettings) { SettingsView(model: model) }
             .alert(questionTitle, isPresented: questionShown, presenting: model.question) { question in
                 switch question {
                 case .flightEnded:
-                    Button("我知道了") { model.flightEndSeen(inApp: true) }
+                    Button(L("我知道了")) { model.flightEndSeen(inApp: true) }
                 case .stopListening:
-                    Button("停止聆聽", role: .destructive) { model.stopAsked() }
-                    Button("繼續聆聽", role: .cancel) { model.keepListening() }
+                    Button(L("停止聆聽"), role: .destructive) { model.stopAsked() }
+                    Button(L("繼續聆聽"), role: .cancel) { model.keepListening() }
                 }
             } message: { question in
                 switch question {
@@ -186,7 +192,7 @@ struct ContentView: View {
                 // Nothing usable came back (not a boarding pass, or too blurry): an all-empty form would
                 // only confuse, so say so and offer another try instead.
                 model.scannedPass = nil
-                passFailure = "照片裡找不到班號，可能不是登機證，或照片不夠清楚。"
+                passFailure = L("照片裡找不到班號，可能不是登機證，或照片不夠清楚。")
             }
         }
         .animation(reduceMotion ? .easeOut(duration: Theme.fast) : .easeInOut(duration: Theme.base), value: modalID)
@@ -228,7 +234,7 @@ struct ContentView: View {
             ZStack {
                 ModalBackdrop()
                 PassReadingCard(failure: model.readingPass ? nil : passFailure,
-                                retakeTitle: camera ? "重拍" : "重新選照片",
+                                retakeTitle: camera ? L("重拍") : L("重新選照片"),
                                 retake: {
                                     passFailure = nil
                                     if camera { showingCamera = true } else { showingPhotos = true }
@@ -247,8 +253,8 @@ struct ContentView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("今天搭哪一班？").font(Theme.title).foregroundStyle(Theme.textPrimary)
-            Text("只在廣播跟你的航班有關時，才震動提醒你。").font(Theme.body).foregroundStyle(Theme.textSecondary)
+            Text(L("今天搭哪一班？")).font(Theme.title).foregroundStyle(Theme.textPrimary)
+            Text(L("只在廣播跟你的航班有關時，才震動提醒你。")).font(Theme.body).foregroundStyle(Theme.textSecondary)
         }
     }
 
@@ -307,24 +313,25 @@ struct ContentView: View {
                          en: "The board data says \(data), but I heard \(heard). Please confirm.", sure: false)
         }
         let sure = item.certainty == .sure
-        return .init(zh: "\(ListenerModel.headline(for: item))（\(sure ? "廣播聽到" : "可能，待確認")）",
+        return .init(zh: "\(ListenerModel.headline(for: item, in: .zh))（\(sure ? "廣播聽到" : "可能，待確認")）",
                      en: "Announcement I got: \u{201C}\(item.original)\u{201D}", sure: sure)
     }
 
     private var listeningSection: some View {
         VStack(spacing: 12) {
             ListeningRing(detected: detected)
-            Text(detected ? "聽到可能相關的廣播，正在核對" : "正在聽機場廣播")
+            Text(detected ? L("聽到可能相關的廣播，正在核對") : L("正在聽機場廣播"))
                 .font(Theme.heading).foregroundStyle(Theme.textPrimary)
-            Text("手機可以鎖屏放口袋。只有跟 \(model.flightCode) 有關時才會震動。")
+            Text(L("手機可以鎖屏放口袋。只有跟 \(model.flightCode) 有關時才會震動。",
+                   "Lock your phone and put it in your pocket. It buzzes only for \(model.flightCode)."))
                 .font(Theme.body).foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
             if model.state == .listening {
                 ProgressView(value: Double(model.level))
                     .tint(model.level < 0.15 ? Theme.possible : Theme.confirmed)
-                    .accessibilityLabel(model.level < 0.15 ? "收音很小" : "收音正常")
+                    .accessibilityLabel(model.level < 0.15 ? L("收音很小") : L("收音正常"))
                 if !model.partial.isEmpty {
-                    Text("最近聽到：\(model.partial)")
+                    Text(L("最近聽到：\(model.partial)", "Just heard: \(model.partial)"))
                         .font(Theme.caption).foregroundStyle(Theme.textSecondary).lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -335,24 +342,24 @@ struct ContentView: View {
 
     private var flightSetup: some View {
         VStack(alignment: .leading, spacing: 12) {
-            field("班號") {
-                TextField("例如 CI100", text: $model.flightCode)
+            field(L("班號")) {
+                TextField(L("例如 CI100"), text: $model.flightCode)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .submitLabel(.search)
                     .onSubmit { Task { await model.refreshFlightData(alertOnChange: false) } }
             }
-            field("目的地") {
-                TextField("例如 東京", text: $model.destination)
+            field(L("目的地")) {
+                TextField(L("例如 東京"), text: $model.destination)
             }
             departureRow
             HStack(spacing: 12) {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button { showingCamera = true } label: { Label("拍登機證", systemImage: "camera") }
+                    Button { showingCamera = true } label: { Label(L("拍登機證"), systemImage: "camera") }
                         .buttonStyle(.sfSecondary)
                 }
                 PhotosPicker(selection: $pickedPhoto, matching: .images) {
-                    Label("從相簿選", systemImage: "photo")
+                    Label(L("從相簿選"), systemImage: "photo")
                 }
                 .buttonStyle(.sfSecondary)
             }
@@ -380,22 +387,22 @@ struct ContentView: View {
     @ViewBuilder private var departureRow: some View {
         if let time = model.departureTime {
             HStack {
-                DatePicker("起飛時間", selection: Binding(get: { time }, set: {
+                DatePicker(L("起飛時間"), selection: Binding(get: { time }, set: {
                     model.departureTime = $0
                     model.departureTimeEstimated = false
                 }))
                 .font(Theme.body)
-                Button("清除", systemImage: "xmark.circle.fill") { model.departureTime = nil }
+                Button(L("清除"), systemImage: "xmark.circle.fill") { model.departureTime = nil }
                     .labelStyle(.iconOnly)
                     .foregroundStyle(Theme.textSecondary)
                     .frame(minWidth: Theme.touch, minHeight: Theme.touch)
             }
             if model.departureTimeEstimated {
-                Text("登機證只印登機時間，起飛時間是推估的（登機後 30 分鐘），請確認。")
+                Text(L("登機證只印登機時間，起飛時間是推估的（登機後 30 分鐘），請確認。"))
                     .sfNote(Theme.possible, Theme.possibleBg)
             }
         } else if model.flight == nil {
-            Button("設定起飛時間", systemImage: "clock") {
+            Button(L("設定起飛時間"), systemImage: "clock") {
                 model.departureTime = Calendar.current.date(byAdding: .hour, value: 2, to: Date())
             }
             .buttonStyle(.sfText)
@@ -405,7 +412,7 @@ struct ContentView: View {
     private var questionTitle: String {
         switch model.question {
         case .flightEnded(let title, _): return title
-        case .stopListening: return "要停止聆聽嗎？"
+        case .stopListening: return L("要停止聆聽嗎？")
         case nil: return ""
         }
     }
@@ -428,7 +435,7 @@ struct ContentView: View {
         Button {
             model.start()
         } label: {
-            Label("開始聆聽廣播", systemImage: "ear")
+            Label(L("開始聆聽廣播"), systemImage: "ear")
         }
         .buttonStyle(.sfPrimary)
         .disabled(!canStart)
@@ -445,11 +452,11 @@ struct ContentView: View {
             case .noNetwork, .unreachable:
                 VStack(alignment: .leading, spacing: 8) {
                     Label(model.connection == .noNetwork
-                          ? "目前沒有網路，無法聆聽。請打開 Wi-Fi 或行動網路。"
-                          : "連不上語音辨識服務。如果連的是機場 Wi-Fi，請先打開瀏覽器完成登入（按「同意」）。",
+                          ? L("目前沒有網路，無法聆聽。請打開 Wi-Fi 或行動網路。")
+                          : L("連不上語音辨識服務。如果連的是機場 Wi-Fi，請先打開瀏覽器完成登入（按「同意」）。"),
                           systemImage: "wifi.exclamationmark")
                         .sfNote(Theme.critical, Theme.criticalBg)
-                    Button("重新檢查", systemImage: "arrow.clockwise") { Task { await model.checkConnection() } }
+                    Button(L("重新檢查"), systemImage: "arrow.clockwise") { Task { await model.checkConnection() } }
                         .buttonStyle(.sfSecondary)
                 }
             }
@@ -479,14 +486,14 @@ struct AlertCard: View {
     }
 
     private var badge: String {
-        guard item.certainty == .sure else { return "可能・請確認" }
+        guard item.certainty == .sure else { return L("可能・請確認") }
         switch item.reading.event {
-        case .finalCall: return "最後登機・馬上行動"
-        case .boarding: return "開始登機・馬上行動"
-        case .cancel: return "班機取消"
-        case .gateChange: return "確定・登機門變更"
-        case .delay, .timeChange: return "確定・時間變更"
-        default: return "確定"
+        case .finalCall: return L("最後登機・馬上行動")
+        case .boarding: return L("開始登機・馬上行動")
+        case .cancel: return L("班機取消")
+        case .gateChange: return L("確定・登機門變更")
+        case .delay, .timeChange: return L("確定・時間變更")
+        default: return L("確定")
         }
     }
 
@@ -504,40 +511,42 @@ struct AlertCard: View {
             .padding(.horizontal, 20).padding(.vertical, 12)
             .background(tone.color)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(badge)，\(level.spoken)")
+            .accessibilityLabel(L("\(badge)，\(level.spoken)", "\(badge), \(level.spoken)"))
 
             VStack(alignment: .leading, spacing: 12) {
                 if item.certainty == .sure {
                     Text(ListenerModel.headline(for: item)).font(Theme.alert).foregroundStyle(tone.color)
                 } else {
                     // Don't shout "Final call!" when we are not sure it is the user's flight.
-                    Text("可能跟你有關，請確認").font(Theme.alert).foregroundStyle(tone.color)
-                    Text("廣播內容：\(ListenerModel.headline(for: item))").font(Theme.heading).foregroundStyle(Theme.textBody)
+                    Text(L("可能跟你有關，請確認")).font(Theme.alert).foregroundStyle(tone.color)
+                    Text(L("廣播內容：\(ListenerModel.headline(for: item))", "Announcement: \(ListenerModel.headline(for: item))")).font(Theme.heading).foregroundStyle(Theme.textBody)
                 }
                 if let note = item.note {
                     Text(note).font(Theme.body).foregroundStyle(Theme.textBody)
                 }
                 if item.confirmations > 1 {
-                    Label("聽到 \(item.confirmations) 次，內容一致", systemImage: "checkmark.seal").font(Theme.body)
+                    Label(L("聽到 \(item.confirmations) 次，內容一致", "Heard \(item.confirmations) times, the same each time"), systemImage: "checkmark.seal").font(Theme.body)
                 }
                 if item.certainty == .maybe {
-                    Label("把手機拿在手上、朝向廣播喇叭，下一次廣播會聽得更清楚。", systemImage: "iphone.radiowaves.left.and.right")
+                    Label(L("把手機拿在手上、朝向廣播喇叭，下一次廣播會聽得更清楚。"), systemImage: "iphone.radiowaves.left.and.right")
                         .font(Theme.body).foregroundStyle(Theme.textBody)
                 }
                 if let v = item.verification { VerificationView(verification: v) }
                 if let other = item.conflictingGate {
-                    Label("前後兩次廣播聽到不同的登機門（\(item.reading.gate ?? "?") 和 \(other)），請看大螢幕確認。",
+                    Label(L("前後兩次廣播聽到不同的登機門（\(item.reading.gate ?? "?") 和 \(other)），請看大螢幕確認。",
+                            "Two announcements gave different gates (\(item.reading.gate ?? "?") and \(other)). Please check the board."),
                           systemImage: "exclamationmark.triangle.fill")
                         .font(Theme.label).foregroundStyle(Theme.possible)
                 } else if item.reading.gate != nil && !item.reading.gateIsCertain {
-                    Text("登機門聽起來不太確定，請看大螢幕確認。").font(Theme.body).foregroundStyle(Theme.possible)
+                    Text(L("登機門聽起來不太確定，請看大螢幕確認。")).font(Theme.body).foregroundStyle(Theme.possible)
                 }
-                Text("\(item.time.formatted(date: .omitted, time: .shortened)) \(AnnouncementLanguage.name(of: item.original))廣播")
+                Text(L("\(item.time.formatted(date: .omitted, time: .shortened)) \(AnnouncementLanguage.name(of: item.original))廣播",
+                       "\(item.time.formatted(date: .omitted, time: .shortened)) \(AnnouncementLanguage.name(of: item.original)) announcement"))
                     .font(Theme.caption).foregroundStyle(Theme.textSecondary)
                 Text("「\(item.original)」").font(Theme.caption).foregroundStyle(Theme.textSecondary)
                 if let translation = item.translation {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("中文翻譯（Muse Spark Open，僅供參考）").font(Theme.caption).foregroundStyle(Theme.textSecondary)
+                        Text(L("中文翻譯（Muse Spark Open，僅供參考）")).font(Theme.caption).foregroundStyle(Theme.textSecondary)
                         Text(translation).font(Theme.body).foregroundStyle(Theme.textPrimary)
                     }
                     .padding(12)
@@ -545,19 +554,19 @@ struct AlertCard: View {
                     .background(Theme.brandTint, in: RoundedRectangle(cornerRadius: Theme.radiusControl))
                 }
                 if item.acknowledged {
-                    Label("已確認", systemImage: "checkmark.circle.fill")
+                    Label(L("已確認"), systemImage: "checkmark.circle.fill")
                         .font(Theme.label).foregroundStyle(Theme.confirmed)
                         .transition(.opacity)
                 } else {
                     // Same weight for both answers, so neither feels like the "right" one. Only boarding
                     // calls offer "at the gate"; it also stops repeats and keeps later boarding calls quiet.
-                    Button("我知道了") { answer(.gotIt, item.id) }.buttonStyle(.sfPrimary)
+                    Button(L("我知道了")) { answer(.gotIt, item.id) }.buttonStyle(.sfPrimary)
                     if isBoardingCall && !atGate {
-                        Button("我已經在登機門了") { answer(.atGate, item.id) }.buttonStyle(.sfSecondary)
+                        Button(L("我已經在登機門了")) { answer(.atGate, item.id) }.buttonStyle(.sfSecondary)
                     }
                 }
                 Button { askStaff() } label: {
-                    Label("給地勤看大字卡", systemImage: "person.fill.questionmark")
+                    Label(L("給地勤看大字卡"), systemImage: "person.fill.questionmark")
                 }
                 .buttonStyle(item.certainty == .maybe && !item.acknowledged ? .sfSecondary : .sfText)
             }
@@ -584,16 +593,16 @@ struct BroadcastRow: View {
                 Text(item.time.formatted(date: .omitted, time: .shortened)).font(Theme.caption).foregroundStyle(Theme.textSecondary)
                 Chip(text: AnnouncementLanguage.name(of: item.original))
                 switch item.certainty {
-                case .sure: Chip(text: "你的航班", color: Theme.info, background: Theme.infoBg)
-                case .maybe: Chip(text: "可能是你的", color: Theme.possible, background: Theme.possibleBg)
-                case .notYours: Chip(text: "跟你無關", color: Theme.textSecondary)
+                case .sure: Chip(text: L("你的航班"), color: Theme.info, background: Theme.infoBg)
+                case .maybe: Chip(text: L("可能是你的"), color: Theme.possible, background: Theme.possibleBg)
+                case .notYours: Chip(text: L("跟你無關"), color: Theme.textSecondary)
                 }
                 Spacer()
                 if item.translation != nil {
-                    Button(shown ? "收起翻譯" : "看翻譯") { shown.toggle() }
+                    Button(shown ? L("收起翻譯") : L("看翻譯")) { shown.toggle() }
                         .buttonStyle(SFButtonStyle(kind: .secondary)).fixedSize()
-                } else if MuseSparkOpen.needsTranslation(item.original) {
-                    Button(translating ? "翻譯中…" : "翻譯") {
+                } else if MuseSparkOpen.needsTranslation(item.original, into: AppLanguage.current == .en ? .english : .traditionalChinese) {
+                    Button(translating ? L("翻譯中…") : L("翻譯")) {
                         translating = true
                         translate()
                     }
@@ -605,7 +614,7 @@ struct BroadcastRow: View {
                 .foregroundStyle(item.certainty == .notYours ? Theme.textSecondary : Theme.textBody)
             if let translation = item.translation, shown {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("中文翻譯（Muse Spark Open）").font(Theme.caption).foregroundStyle(Theme.textSecondary)
+                    Text(L("中文翻譯（Muse Spark Open）")).font(Theme.caption).foregroundStyle(Theme.textSecondary)
                     Text(translation).font(Theme.body).foregroundStyle(Theme.textPrimary)
                 }
                 .padding(12)
@@ -628,13 +637,13 @@ struct BroadcastLog: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("英日文廣播可以按「翻譯」。").font(Theme.body).foregroundStyle(Theme.textSecondary)
+                Text(L("英日文廣播可以按「翻譯」。")).font(Theme.body).foregroundStyle(Theme.textSecondary)
                 ForEach(model.heard) { item in BroadcastRow(item: item) { model.translate(item) } }
             }
             .padding(.horizontal, 24).padding(.vertical, 16)
         }
         .background(Theme.page)
-        .navigationTitle("廣播紀錄")
+        .navigationTitle(L("廣播紀錄"))
     }
 }
 
@@ -672,7 +681,7 @@ struct StaffCard: View {
                     .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard)
                         .strokeBorder(have.sure ? Theme.border : Theme.possible, lineWidth: 1))
                 }
-                Button("返回", action: close).buttonStyle(.sfSecondary)
+                Button(L("返回"), action: close).buttonStyle(.sfSecondary)
             }
             .padding(24)
         }
@@ -696,22 +705,22 @@ struct FlightCard: View {
                     Text("\(f.airline) \(f.code)").font(Theme.heading).foregroundStyle(Theme.textPrimary)
                     Spacer()
                     if stale {
-                        Chip(text: "? 資料可能過時", color: Theme.possible, background: Theme.possibleBg, outlined: true)
+                        Chip(text: L("? 資料可能過時"), color: Theme.possible, background: Theme.possibleBg, outlined: true)
                     } else if conflict != nil {
-                        Chip(text: "? 待確認", color: Theme.possible, background: Theme.possibleBg, outlined: true)
+                        Chip(text: L("? 待確認"), color: Theme.possible, background: Theme.possibleBg, outlined: true)
                     } else {
-                        Chip(text: "✓ 機場資料", color: Theme.confirmed, background: Theme.confirmedBg, outlined: true)
+                        Chip(text: L("✓ 機場資料"), color: Theme.confirmed, background: Theme.confirmedBg, outlined: true)
                     }
                 }
-                Text("\(f.terminal) 台北桃園  →  \(f.placeZh) \(f.placeEn)").font(Theme.body).foregroundStyle(Theme.textSecondary)
+                Text(L("\(f.terminal) 台北桃園  →  \(f.placeZh) \(f.placeEn)", "\(f.terminal) Taipei Taoyuan  →  \(f.placeEn)")).font(Theme.body).foregroundStyle(Theme.textSecondary)
                 HStack(alignment: .lastTextBaseline, spacing: 24) {
-                    cell("登機門", gateText, font: Theme.metric, color: conflict != nil || stale ? Theme.possible : Theme.textPrimary)
-                    cell("表定起飛", String(f.scheduled.suffix(5)))
-                    if f.estimated != f.scheduled { cell("預計", String(f.estimated.suffix(5))) }
+                    cell(L("登機門"), gateText, font: Theme.metric, color: conflict != nil || stale ? Theme.possible : Theme.textPrimary)
+                    cell(L("表定起飛"), String(f.scheduled.suffix(5)))
+                    if f.estimated != f.scheduled { cell(L("預計"), String(f.estimated.suffix(5))) }
                 }
-                Text(f.status + (f.progress.map { "・\($0)" } ?? "")).font(Theme.label).foregroundStyle(Theme.textBody)
+                Text(FlightStatusText.show(f.status) + (f.progress.map { "・" + FlightStatusText.show($0) } ?? "")).font(Theme.label).foregroundStyle(Theme.textBody)
                 if !f.codeshares.isEmpty {
-                    Text("共享班號：\(f.codeshares.joined(separator: "、"))").font(Theme.caption).foregroundStyle(Theme.textSecondary)
+                    Text(L("共享班號：\(f.codeshares.joined(separator: "、"))", "Codeshares: \(f.codeshares.joined(separator: ", "))")).font(Theme.caption).foregroundStyle(Theme.textSecondary)
                 }
                 Text(footer).font(Theme.caption).foregroundStyle(conflict != nil || stale ? Theme.possible : Theme.textSecondary)
             }
@@ -723,14 +732,14 @@ struct FlightCard: View {
 
     private var gateText: String {
         if let conflict { return "\(conflict.data) / \(conflict.heard)" }
-        return flight?.gate ?? "未定"
+        return flight?.gate ?? L("未定")
     }
 
     private var footer: String {
         let time = updated.map { $0.formatted(date: .omitted, time: .shortened) } ?? "—"
-        if stale { return "沒有網路：資料停在 \(time)，可能不是最新" }
-        if conflict != nil { return "廣播和機場資料不一致，請看大螢幕或問地勤" }
-        return "資料來源：桃園機場即時航班・\(time) 更新（每 5 分鐘）"
+        if stale { return L("沒有網路：資料停在 \(time)，可能不是最新", "Offline: data from \(time), may be out of date") }
+        if conflict != nil { return L("廣播和機場資料不一致，請看大螢幕或問地勤") }
+        return L("資料來源：桃園機場即時航班・\(time) 更新（每 5 分鐘）", "Source: Taoyuan Airport live flight data · updated \(time) (every 5 min)")
     }
 
     private func cell(_ title: String, _ value: String, font: Font = Theme.heading, color: Color = Theme.textPrimary) -> some View {
@@ -751,11 +760,12 @@ struct VerificationView: View {
         VStack(alignment: .leading, spacing: 4) {
             switch verification.gate {
             case .agrees(let g):
-                Label("航班資料也是 \(g)", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.confirmed)
+                Label(L("航班資料也是 \(g)", "The flight data says \(g) too"), systemImage: "checkmark.circle.fill").foregroundStyle(Theme.confirmed)
             case .fromData(let g):
-                Label("廣播沒聽清楚登機門，航班資料顯示 \(g)", systemImage: "airplane.circle").foregroundStyle(Theme.textBody)
+                Label(L("廣播沒聽清楚登機門，航班資料顯示 \(g)", "The gate wasn't clear; the flight data shows \(g)"), systemImage: "airplane.circle").foregroundStyle(Theme.textBody)
             case .disagrees(let heard, let data):
-                Label("廣播說 \(heard)，航班資料是 \(data)。廣播通常比資料早更新，請看大螢幕確認。",
+                Label(L("廣播說 \(heard)，航班資料是 \(data)。廣播通常比資料早更新，請看大螢幕確認。",
+                         "The announcement said \(heard), the flight data says \(data). Announcements usually come first; please check the board."),
                       systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(Theme.possible)
             case .unknown:
@@ -763,9 +773,9 @@ struct VerificationView: View {
             }
             switch verification.status {
             case .agrees:
-                Label("航班資料也顯示了這個變化", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.confirmed)
+                Label(L("航班資料也顯示了這個變化"), systemImage: "checkmark.circle.fill").foregroundStyle(Theme.confirmed)
             case .notYetInData(let status):
-                Label("航班資料還沒更新（目前顯示「\(status)」）", systemImage: "clock").foregroundStyle(Theme.textBody)
+                Label(L("航班資料還沒更新（目前顯示「\(status)」）", "Not in the flight data yet (it shows \u{201C}\(status)\u{201D})"), systemImage: "clock").foregroundStyle(Theme.textBody)
             case .notApplicable:
                 EmptyView()
             }

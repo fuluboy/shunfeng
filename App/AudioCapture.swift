@@ -8,9 +8,9 @@ enum MicChoice: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .phone: return "手機麥克風（建議）"
-        case .external: return "外接麥克風（有線、USB-C 領夾）"
-        case .bluetooth: return "藍牙（耳機、助聽器）"
+        case .phone: return L("手機麥克風（建議）")
+        case .external: return L("外接麥克風（有線、USB-C 領夾）")
+        case .bluetooth: return L("藍牙（耳機、助聽器）")
         }
     }
 }
@@ -32,7 +32,7 @@ final class AudioCapture {
     private var sink: (chunk: (Data) -> Void, level: (Float) -> Void)?
     private let sinkLock = NSLock()
     private var runningMic: MicChoice?
-    private var inputName = "麥克風"
+    private var inputName = L("麥克風")
 
     /// Recording with this microphone right now, so a reconnect can keep it.
     func isRunning(mic: MicChoice) -> Bool { engine.isRunning && runningMic == mic }
@@ -92,10 +92,10 @@ final class AudioCapture {
         // Right after a call the microphone can report no format yet; installing a tap then also raises an
         // exception. Fail with an error instead, so the caller retries.
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw NSError(domain: "AudioCapture", code: 2, userInfo: [NSLocalizedDescriptionKey: "麥克風還沒準備好"])
+            throw NSError(domain: "AudioCapture", code: 2, userInfo: [NSLocalizedDescriptionKey: L("麥克風還沒準備好")])
         }
         guard let converter = AVAudioConverter(from: format, to: target) else {
-            throw NSError(domain: "AudioCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "無法轉換麥克風格式"])
+            throw NSError(domain: "AudioCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: L("無法轉換麥克風格式")])
         }
         let target = self.target
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
@@ -130,7 +130,7 @@ final class AudioCapture {
         // Switching to a Bluetooth mic happens a moment after start, and iOS then stops the engine: no audio
         // reached the server for 15 seconds and it closed the stream. Start again with the new format.
         runningMic = mic
-        inputName = session.currentRoute.inputs.first?.portName ?? port?.portName ?? "麥克風"
+        inputName = session.currentRoute.inputs.first?.portName ?? port?.portName ?? L("麥克風")
         restart = { [weak self] in
             guard let self, let sink = self.currentSink() else { return }
             do {
