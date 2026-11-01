@@ -118,7 +118,15 @@ final class ListenerModel: ObservableObject {
     enum Connection { case checking, ok, noNetwork, unreachable }
     /// Which microphone to use, and the one actually in use while listening.
     @Published var mic: MicChoice {
-        didSet { UserDefaults.standard.set(mic.rawValue, forKey: "mic") }
+        didSet {
+            UserDefaults.standard.set(mic.rawValue, forKey: "mic")
+            // Switch right away while listening (the phone test on Nov 1 expected that): reconnect with the
+            // new microphone. A second or two of announcements is lost, which is said in the settings.
+            guard mic != oldValue, state == .listening else { return }
+            EventLog.write("mic_switch", ["from": oldValue.rawValue, "to": mic.rawValue])
+            dropConnection()
+            resume()
+        }
     }
     @Published var micInUse: String?
     private var retry: Task<Void, Never>?

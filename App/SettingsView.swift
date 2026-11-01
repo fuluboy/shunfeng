@@ -28,7 +28,7 @@ struct SettingsView: View {
                 } header: {
                     Text("收音裝置")
                 } footer: {
-                    Text(micNote + (model.isListening ? "\n\n下次按「開始聆聽」時生效。" : ""))
+                    Text(micNote + (model.isListening ? "\n\n聆聽中切換會重新連線，中間約 1～2 秒聽不到。" : ""))
                 }
                 Section {
                     Toggle("班機結束後自動停止聆聽", isOn: $model.autoStop)
