@@ -208,6 +208,7 @@ final class ListenerModel: ObservableObject {
             Task { @MainActor in self?.networkChanged(online: online) }
         }
         network.start(queue: .main)
+        calls.onCallEnded = { [weak self] in self?.interruptionEnded() }
         NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil,
                                                queue: .main) { [weak self] note in
             let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
@@ -516,8 +517,15 @@ final class ListenerModel: ObservableObject {
 
     // MARK: - Phone calls
 
+    /// A phone, LINE or FaceTime call is going on (apps using CallKit show up here).
+    static var onCall: Bool { CXCallObserver().calls.contains { !$0.hasEnded } }
+    /// Tells us when a call ends even if iOS sends no "interruption ended" (it doesn't when listening
+    /// started during the call, because then nothing was interrupted).
+    private let calls = CallWatcher()
+
     /// Microphone restarts tried after a call before giving up (the call may still be releasing it).
     private var resumeAttempts = 0
+    private var resumeScheduled = false
 
     /// A call, a video call or Siri took the microphone. iOS stops our recording; pause instead of
     /// failing, and say so quietly (the user knows they are on a call, but not that announcements are missed).
@@ -531,7 +539,7 @@ final class ListenerModel: ObservableObject {
         // the call, keep one further out that says what happened.
         scheduleWatchdog(after: 15 * 60, title: "Shunfeng 還在暫停（通話打斷收音）",
                          body: "通話結束後如果沒有自動繼續聽，請打開 Shunfeng。")
-        notify(title: "通話中，暫停聆聽廣播", body: "通話結束後會自動繼續聽。這段時間請留意大螢幕。", quiet: true)
+        notify(title: "通話中，暫停聆聽廣播", body: "通話結束後會自動繼續聽。這段時間請留意大螢幕。", silent: true)
     }
 
     /// The call ended. Also called when the app is opened, since iOS doesn't promise an "ended" for every
@@ -539,15 +547,19 @@ final class ListenerModel: ObservableObject {
     func interruptionEnded() {
         guard state == .interrupted else { return }
         // Opening the app during the call is not the end of it (LINE and FaceTime calls show up here too).
-        guard !CXCallObserver().calls.contains(where: { !$0.hasEnded }) else { return }
+        guard !Self.onCall else { return }
+        // Both iOS and CallKit report the end of a call: resume once.
+        guard !resumeScheduled else { return }
+        resumeScheduled = true
         EventLog.write("interruption_ended")
         resumeAttempts = 0
         Task {
             // Give the call a moment to hand the microphone back.
             try? await Task.sleep(nanoseconds: 1_000_000_000)
+            resumeScheduled = false
             guard state == .interrupted else { return }
             scheduleWatchdog()
-            notify(title: "通話結束，繼續聆聽廣播", body: "Shunfeng 又在聽廣播了。", quiet: true)
+            notify(title: "通話結束，繼續聆聽廣播", body: "Shunfeng 又在聽廣播了。", silent: true)
             resume()
         }
     }
@@ -702,6 +714,14 @@ final class ListenerModel: ObservableObject {
             } catch {
                 EventLog.write("start_failed", ["error": error.localizedDescription])
                 guard let self else { return }
+                // Started during a call (found with a LINE call on Nov 1): the call holds the microphone.
+                // Wait for it to end instead of failing.
+                if Self.onCall {
+                    self.dropConnection()
+                    self.state = .listening   // so interruptionBegan accepts it
+                    self.interruptionBegan()
+                    return
+                }
                 // Right after a call the microphone may not be free yet: try again a few times.
                 if self.resumeAttempts < 3, self.state == .connecting {
                     self.resumeAttempts += 1
@@ -965,8 +985,10 @@ final class ListenerModel: ObservableObject {
 
     /// `urgent`: in the background the system vibration is the same for every alert, so boarding and
     /// final calls are repeated every 30 seconds (up to 4 times) until the user opens the app.
+    /// `quiet`: into Notification Center only, no banner. `silent`: a banner, but no sound or vibration
+    /// (for news during a call, which must be seen but shouldn't buzz in the user's ear).
     private func notify(title: String, body: String, heardID: UUID? = nil, urgent: Bool = false, quiet: Bool = false,
-                        category: String? = nil) {
+                        silent: Bool = false, category: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -983,6 +1005,10 @@ final class ListenerModel: ObservableObject {
         if quiet {
             content.sound = nil
             content.interruptionLevel = .passive
+        }
+        if silent {
+            content.sound = nil
+            content.interruptionLevel = .active
         }
         EventLog.write("notify", ["title": title, "with_sound": content.sound != nil, "urgent": urgent, "quiet": quiet])
         let center = UNUserNotificationCenter.current()
@@ -1060,5 +1086,21 @@ final class ListenerModel: ObservableObject {
             return ("我是聽障旅客。請問 \(flight) 現在在哪個登機門？",
                     "I'm deaf. Which gate is flight \(flight) at now?")
         }
+    }
+}
+
+/// Reports the end of calls, from CallKit.
+final class CallWatcher: NSObject, CXCallObserverDelegate {
+    private let observer = CXCallObserver()
+    var onCallEnded: (@MainActor () -> Void)?
+
+    override init() {
+        super.init()
+        observer.setDelegate(self, queue: .main)
+    }
+
+    func callObserver(_ callObserver: CXCallObserver, callChanged call: CXCall) {
+        guard call.hasEnded, let onCallEnded else { return }
+        MainActor.assumeIsolated { onCallEnded() }
     }
 }
