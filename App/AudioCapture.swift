@@ -26,6 +26,30 @@ final class AudioCapture {
     /// When iOS reconfigures audio (switching to a Bluetooth mic, plugging one in) it stops the engine.
     /// Called after restarting for that, with the microphone now in use, or the error if it failed.
     var onReconfigured: ((Result<String, Error>) -> Void)?
+    /// Where audio goes. Swapped on a reconnect without touching the microphone: iOS doesn't let an app in
+    /// the background start recording again, so restarting it then stopped listening for good (found when
+    /// the server's 60-minute session limit made the app reconnect with the screen off, Nov 1).
+    private var sink: (chunk: (Data) -> Void, level: (Float) -> Void)?
+    private let sinkLock = NSLock()
+    private var runningMic: MicChoice?
+    private var inputName = "麥克風"
+
+    /// Recording with this microphone right now, so a reconnect can keep it.
+    func isRunning(mic: MicChoice) -> Bool { engine.isRunning && runningMic == mic }
+
+    /// Sends the running microphone's audio somewhere new. Returns the microphone's name.
+    func redirect(onChunk: @escaping (Data) -> Void, onLevel: @escaping (Float) -> Void) -> String {
+        sinkLock.lock()
+        sink = (onChunk, onLevel)
+        sinkLock.unlock()
+        return inputName
+    }
+
+    private func currentSink() -> (chunk: (Data) -> Void, level: (Float) -> Void)? {
+        sinkLock.lock()
+        defer { sinkLock.unlock() }
+        return sink
+    }
     private let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
 
     /// `onChunk` gets about 85 ms of audio at a time; `onLevel` gets a 0...1 loudness for the meter.
@@ -36,6 +60,7 @@ final class AudioCapture {
         // stopped the engine but the old tap is still installed (phone test, Nov 1).
         stopEngine()
         engine = AVAudioEngine()
+        _ = redirect(onChunk: onChunk, onLevel: onLevel)
         let session = AVAudioSession.sharedInstance()
         // The mic stays on in the background through the audio background mode; a wired or USB-C
         // lavalier mic becomes the input automatically.
@@ -73,7 +98,8 @@ final class AudioCapture {
             throw NSError(domain: "AudioCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "無法轉換麥克風格式"])
         }
         let target = self.target
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+            guard let sink = self?.currentSink() else { return }
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * target.sampleRate / format.sampleRate) + 32
             guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
             var handedOver = false
@@ -88,7 +114,7 @@ final class AudioCapture {
             }
             guard out.frameLength > 0, let samples = out.int16ChannelData?[0] else { return }
             let count = Int(out.frameLength)
-            onChunk(Data(bytes: samples, count: count * 2))
+            sink.chunk(Data(bytes: samples, count: count * 2))
 
             var sum: Float = 0
             for i in 0..<count {
@@ -96,17 +122,19 @@ final class AudioCapture {
                 sum += s * s
             }
             let db = 10 * log10(max(sum / Float(count), 1e-9))     // about -90 (silence) ... 0 (loud)
-            onLevel(min(max((db + 60) / 60, 0), 1))
+            sink.level(min(max((db + 60) / 60, 0), 1))
         }
         engine.prepare()
         try engine.start()
 
         // Switching to a Bluetooth mic happens a moment after start, and iOS then stops the engine: no audio
         // reached the server for 15 seconds and it closed the stream. Start again with the new format.
+        runningMic = mic
+        inputName = session.currentRoute.inputs.first?.portName ?? port?.portName ?? "麥克風"
         restart = { [weak self] in
-            guard let self else { return }
+            guard let self, let sink = self.currentSink() else { return }
             do {
-                let name = try self.start(mic: mic, onChunk: onChunk, onLevel: onLevel)
+                let name = try self.start(mic: mic, onChunk: sink.chunk, onLevel: sink.level)
                 self.onReconfigured?(.success(name))
             } catch {
                 self.onReconfigured?(.failure(error))
@@ -116,10 +144,11 @@ final class AudioCapture {
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             self?.restart?()
         }
-        return session.currentRoute.inputs.first?.portName ?? port?.portName ?? "麥克風"
+        return inputName
     }
 
     private func stopEngine() {
+        runningMic = nil
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
         configurationObserver = nil
         engine.inputNode.removeTap(onBus: 0)

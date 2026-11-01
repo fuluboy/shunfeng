@@ -750,13 +750,17 @@ final class ListenerModel: ObservableObject {
             }
             do {
                 guard let self else { return }
-                let name = try self.audio.start(
-                    mic: self.mic,
-                    onChunk: { continuation.yield($0) },
-                    onLevel: { value in Task { @MainActor in self.level = value } }
-                )
-                self.micInUse = name
-                EventLog.write("mic", ["chosen": self.mic.rawValue, "in_use": name])
+                let onChunk: (Data) -> Void = { continuation.yield($0) }
+                let onLevel: (Float) -> Void = { value in Task { @MainActor in self.level = value } }
+                // A reconnect keeps the microphone running (it can't be restarted in the background).
+                if self.audio.isRunning(mic: self.mic) {
+                    self.micInUse = self.audio.redirect(onChunk: onChunk, onLevel: onLevel)
+                    EventLog.write("mic_kept", ["in_use": self.micInUse ?? ""])
+                } else {
+                    let name = try self.audio.start(mic: self.mic, onChunk: onChunk, onLevel: onLevel)
+                    self.micInUse = name
+                    EventLog.write("mic", ["chosen": self.mic.rawValue, "in_use": name])
+                }
             } catch {
                 EventLog.write("start_failed", ["error": error.localizedDescription])
                 guard let self else { return }
