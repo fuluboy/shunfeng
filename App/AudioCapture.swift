@@ -24,11 +24,12 @@ final class AudioCapture {
     /// Returns the name of the microphone actually used (the chosen one may not be connected).
     @discardableResult
     func start(mic: MicChoice, onChunk: @escaping (Data) -> Void, onLevel: @escaping (Float) -> Void) throws -> String {
-        // Restarting while running (a reconnect) replaces the tap rather than adding a second one.
-        if engine.isRunning {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
-        }
+        // Restarting replaces the tap rather than adding a second one, which raises an exception and ends
+        // the app. Always remove it: after a phone call iOS has stopped the engine but the old tap is still
+        // installed (found in the phone test on Nov 1: the app closed as the call ended).
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        engine.reset()
         let session = AVAudioSession.sharedInstance()
         // The mic stays on in the background through the audio background mode; a wired or USB-C
         // lavalier mic becomes the input automatically.
@@ -57,6 +58,11 @@ final class AudioCapture {
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        // Right after a call the microphone can report no format yet; installing a tap then also raises an
+        // exception. Fail with an error instead, so the caller retries.
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw NSError(domain: "AudioCapture", code: 2, userInfo: [NSLocalizedDescriptionKey: "麥克風還沒準備好"])
+        }
         guard let converter = AVAudioConverter(from: format, to: target) else {
             throw NSError(domain: "AudioCapture", code: 1, userInfo: [NSLocalizedDescriptionKey: "無法轉換麥克風格式"])
         }
