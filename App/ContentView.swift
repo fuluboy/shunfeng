@@ -12,6 +12,11 @@ struct ContentView: View {
     @State private var showingSettings = false
     /// The listening ring turns solid for a moment when an announcement about the user's flight arrives.
     @State private var detected = false
+    /// A new alert opens over a blurred, dimmed screen until it is answered, so nothing behind it can be
+    /// tapped by mistake and the user can focus on it. Answered alerts stay in the list below.
+    @State private var modalID: UUID?
+
+    private var modalItem: Heard? { modalID.flatMap { id in model.heard.first { $0.id == id } } }
 
     var body: some View {
         NavigationStack {
@@ -123,6 +128,16 @@ struct ContentView: View {
                     pickedPhoto = nil
                 }
             }
+            .onChange(of: model.latestSure?.id) { _, _ in present(model.latestSure) }
+            .onChange(of: model.latestMaybe?.id) { _, _ in present(model.latestMaybe) }
+            .onChange(of: modalItem?.acknowledged) { _, answered in
+                guard answered == true else { return }
+                // Leave "已確認" on screen for a moment before closing.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(600))
+                    modalID = nil
+                }
+            }
             .onChange(of: model.heard.first?.id) { _, _ in
                 guard let item = model.heard.first, item.certainty != .notYours else { return }
                 detected = true
@@ -154,7 +169,42 @@ struct ContentView: View {
                 await model.checkConnection()
             }
         }
+        .overlay { alertModal }
+        .animation(reduceMotion ? .easeOut(duration: Theme.fast) : .easeInOut(duration: Theme.base), value: modalID)
         .tint(Theme.brand)
+    }
+
+    private func present(_ item: Heard?) {
+        guard let item, !item.acknowledged else { return }
+        modalID = item.id
+    }
+
+    /// The blurred, dimmed backdrop swallows every tap; only the card's own buttons answer it.
+    @ViewBuilder private var alertModal: some View {
+        if let item = modalItem {
+            ZStack {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .overlay(Color.black.opacity(0.45))
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {}
+                    .accessibilityHidden(true)
+                GeometryReader { geo in
+                    ScrollView {
+                        AlertCard(item: item, atGate: model.atGate, answer: { model.answer($0, heardID: $1) }) {
+                            showingStaffCard = true
+                        }
+                        .padding(.horizontal, 24)
+                        .frame(maxWidth: .infinity, minHeight: geo.size.height)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                }
+                .transition(cardTransition)
+            }
+            .transition(.opacity)
+            .accessibilityAddTraits(.isModal)
+        }
     }
 
     private var header: some View {
