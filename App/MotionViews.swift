@@ -146,6 +146,51 @@ struct VibrationLegend: View {
     }
 }
 
+/// The backdrop of every popup: blurred and dimmed, and it takes every tap, so only the popup's own
+/// buttons do anything and the user can focus on it.
+struct ModalBackdrop: View {
+    var body: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .overlay(Color.black.opacity(0.45))
+            .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .onTapGesture {}
+            .accessibilityHidden(true)
+    }
+}
+
+/// A boarding pass being read: a cyan line sweeps over the pass, top to bottom and back, like a scan
+/// (ambient loop, 1.6 s each way). Reduce Motion shows the pass with a static line.
+struct PassScanAnimation: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var down = false
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: Theme.radiusOverlay)
+                .fill(Theme.brandTint)
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusOverlay).strokeBorder(Theme.brand, lineWidth: 2))
+            Image(systemName: "airplane")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(Theme.brand)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Capsule()
+                .fill(Theme.accent)
+                .frame(height: 4)
+                .shadow(color: Theme.accent.opacity(0.9), radius: 6)
+                .padding(.horizontal, 8)
+                .offset(y: reduceMotion ? 44 : (down ? 84 : 6))
+        }
+        .frame(width: 140, height: 94)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { down = true }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 /// M07 — the status bar at the top. Colors cross-fade in 250 ms and the icon swaps with a symbol
 /// effect; only "reconnecting" moves continuously.
 struct StatusBanner: View {

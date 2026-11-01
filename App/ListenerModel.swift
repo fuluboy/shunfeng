@@ -144,6 +144,8 @@ final class ListenerModel: ObservableObject {
     @Published var scannedPass: BoardingPass?
     /// "讀取中…" or why reading failed.
     @Published var passStatus: String?
+    /// The photo is with Muse Spark; the screen shows a waiting popup meanwhile.
+    @Published var readingPass = false
 
     private var apiKey: String? {
         guard let key = Bundle.main.object(forInfoDictionaryKey: "MetaAPIKey") as? String,
@@ -157,6 +159,8 @@ final class ListenerModel: ObservableObject {
             return
         }
         passStatus = "Muse Spark 讀取登機證中…"
+        readingPass = true
+        defer { readingPass = false }
         let started = Date()
         do {
             scannedPass = try await MetaModelAPI(apiKey: key).readBoardingPass(jpeg: jpeg)

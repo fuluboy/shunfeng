@@ -15,6 +15,11 @@ struct ContentView: View {
     /// A new alert opens over a blurred, dimmed screen until it is answered, so nothing behind it can be
     /// tapped by mistake and the user can focus on it. Answered alerts stay in the list below.
     @State private var modalID: UUID?
+    /// Reading a boarding pass failed: the reason, shown in the popup until the user picks what to do.
+    @State private var passFailure: String?
+    @State private var showingPhotos = false
+
+    private var passPopupShown: Bool { model.readingPass || passFailure != nil }
 
     private var modalItem: Heard? { modalID.flatMap { id in model.heard.first { $0.id == id } } }
 
@@ -116,7 +121,7 @@ struct ContentView: View {
             .sheet(item: $model.scannedPass) { pass in
                 BoardingPassConfirm(pass: pass, use: model.useScannedPass) {
                     model.scannedPass = nil
-                    showingCamera = true
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) { showingCamera = true } else { showingPhotos = true }
                 }
             }
             .onChange(of: pickedPhoto) { _, item in
@@ -170,7 +175,22 @@ struct ContentView: View {
             }
         }
         .overlay { alertModal }
+        .overlay { passModal }
+        .photosPicker(isPresented: $showingPhotos, selection: $pickedPhoto, matching: .images)
+        .onChange(of: model.readingPass) { _, reading in
+            if reading {
+                passFailure = nil
+            } else if model.scannedPass == nil, let status = model.passStatus {
+                passFailure = status
+            } else if let pass = model.scannedPass, pass.flightCode == nil {
+                // Nothing usable came back (not a boarding pass, or too blurry): an all-empty form would
+                // only confuse, so say so and offer another try instead.
+                model.scannedPass = nil
+                passFailure = "照片裡找不到班號，可能不是登機證，或照片不夠清楚。"
+            }
+        }
         .animation(reduceMotion ? .easeOut(duration: Theme.fast) : .easeInOut(duration: Theme.base), value: modalID)
+        .animation(reduceMotion ? .easeOut(duration: Theme.fast) : .easeInOut(duration: Theme.base), value: passPopupShown)
         .tint(Theme.brand)
     }
 
@@ -183,13 +203,7 @@ struct ContentView: View {
     @ViewBuilder private var alertModal: some View {
         if let item = modalItem {
             ZStack {
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .overlay(Color.black.opacity(0.45))
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {}
-                    .accessibilityHidden(true)
+                ModalBackdrop()
                 GeometryReader { geo in
                     ScrollView {
                         AlertCard(item: item, atGate: model.atGate, answer: { model.answer($0, heardID: $1) }) {
@@ -200,6 +214,30 @@ struct ContentView: View {
                     }
                     .scrollBounceBehavior(.basedOnSize)
                 }
+                .transition(cardTransition)
+            }
+            .transition(.opacity)
+            .accessibilityAddTraits(.isModal)
+        }
+    }
+
+    /// Waiting for Muse Spark to read the photo, then either the confirm sheet or what went wrong.
+    @ViewBuilder private var passModal: some View {
+        if passPopupShown {
+            let camera = UIImagePickerController.isSourceTypeAvailable(.camera)
+            ZStack {
+                ModalBackdrop()
+                PassReadingCard(failure: model.readingPass ? nil : passFailure,
+                                retakeTitle: camera ? "重拍" : "重新選照片",
+                                retake: {
+                                    passFailure = nil
+                                    if camera { showingCamera = true } else { showingPhotos = true }
+                                },
+                                typeInstead: {
+                                    passFailure = nil
+                                    model.passStatus = nil
+                                })
+                .padding(.horizontal, 24)
                 .transition(cardTransition)
             }
             .transition(.opacity)
@@ -318,7 +356,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.sfSecondary)
             }
-            if let status = model.passStatus {
+            if let status = model.passStatus, !passPopupShown {
                 Text(status).font(Theme.caption).foregroundStyle(Theme.textSecondary)
             }
         }

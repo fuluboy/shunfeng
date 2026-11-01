@@ -109,3 +109,50 @@ struct BoardingPassConfirm: View {
 extension BoardingPass: Identifiable {
     public var id: String { [flight, date, from, to, seat].map { $0 ?? "" }.joined(separator: "|") }
 }
+
+/// The popup while Muse Spark reads the photo, and what to do if it couldn't. A small line of text was
+/// easy to miss; this says plainly that something is happening and how long it usually takes.
+struct PassReadingCard: View {
+    /// nil while reading; the reason when reading failed.
+    let failure: String?
+    let retakeTitle: String
+    let retake: () -> Void
+    let typeInstead: () -> Void
+    @State private var started = Date()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let failure {
+                HStack(spacing: 10) {
+                    GlyphBadge(symbol: "exclamationmark", color: Theme.critical)
+                    Text("讀不出登機證").font(Theme.alert).foregroundStyle(Theme.critical)
+                }
+                Text(failure).font(Theme.body).foregroundStyle(Theme.textBody)
+                Text("照片要清楚、不反光，整張登機證都在畫面裡。").font(Theme.body).foregroundStyle(Theme.textSecondary)
+                Button(retakeTitle, action: retake).buttonStyle(.sfPrimary)
+                Button("改成手動輸入班號", action: typeInstead).buttonStyle(.sfSecondary)
+            } else {
+                PassScanAnimation().frame(maxWidth: .infinity)
+                Text("正在讀取登機證").font(Theme.alert).foregroundStyle(Theme.textPrimary)
+                    .frame(maxWidth: .infinity)
+                Text("Muse Spark 正在從照片讀出班號、日期與登機門，通常要幾秒鐘。讀完會請你確認一次。")
+                    .font(Theme.body).foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                TimelineView(.periodic(from: started, by: 1)) { context in
+                    Text("已等待 \(max(0, Int(context.date.timeIntervalSince(started)))) 秒")
+                        .font(Theme.caption).foregroundStyle(Theme.textSecondary)
+                        .monospacedDigit()
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .padding(24)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusOverlay))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusOverlay)
+            .strokeBorder(failure == nil ? Theme.border : Theme.critical, lineWidth: failure == nil ? 1 : 2))
+        .animation(.easeInOut(duration: Theme.base), value: failure)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(failure == nil ? "正在讀取登機證，請稍候" : "讀不出登機證")
+    }
+}
