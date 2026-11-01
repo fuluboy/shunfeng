@@ -14,9 +14,15 @@ struct ListeningRing: View {
     var body: some View {
         ZStack {
             if reduceMotion {
-                ForEach(0..<3, id: \.self) { i in
-                    Circle().stroke(Theme.accent.opacity(0.35), lineWidth: 2)
-                        .scaleEffect(1.2 + CGFloat(i) * 0.25)
+                // No movement: the rings stay put and slowly brighten and dim (3 s), still saying "listening".
+                TimelineView(.animation(paused: detected)) { context in
+                    let pulse = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * 2 * .pi / 3)
+                    ZStack {
+                        ForEach(0..<3, id: \.self) { i in
+                            Circle().stroke(Theme.accent.opacity(0.2 + 0.4 * pulse), lineWidth: 2)
+                                .scaleEffect(1.2 + CGFloat(i) * 0.25)
+                        }
+                    }
                 }
                 .opacity(detected ? 0 : 1)
             } else {
@@ -161,12 +167,27 @@ struct ModalBackdrop: View {
 }
 
 /// A boarding pass being read: a cyan line sweeps over the pass, top to bottom and back, like a scan
-/// (ambient loop, 1.6 s each way). Reduce Motion shows the pass with a static line.
+/// (ambient loop, 1.6 s each way). With Reduce Motion the line stays in the middle and slowly fades in
+/// and out instead, so the popup still shows that work is going on.
 struct PassScanAnimation: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var down = false
 
     var body: some View {
+        // Driven by the clock rather than a repeating animation started on appear, which a popup's own
+        // entrance animation can swallow.
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            let phase = t.truncatingRemainder(dividingBy: 3.2) / 3.2
+            let tri = phase < 0.5 ? phase * 2 : 2 - phase * 2
+            let eased = tri * tri * (3 - 2 * tri)
+            let pulse = 0.5 + 0.5 * sin(t * 2 * .pi / 1.6)
+            pass(lineY: reduceMotion ? 44 : 6 + 78 * eased, lineOpacity: reduceMotion ? 0.3 + 0.7 * pulse : 1)
+        }
+        .frame(width: 140, height: 94)
+        .accessibilityHidden(true)
+    }
+
+    private func pass(lineY: CGFloat, lineOpacity: Double) -> some View {
         ZStack(alignment: .top) {
             RoundedRectangle(cornerRadius: Theme.radiusOverlay)
                 .fill(Theme.brandTint)
@@ -180,14 +201,9 @@ struct PassScanAnimation: View {
                 .frame(height: 4)
                 .shadow(color: Theme.accent.opacity(0.9), radius: 6)
                 .padding(.horizontal, 8)
-                .offset(y: reduceMotion ? 44 : (down ? 84 : 6))
+                .opacity(lineOpacity)
+                .offset(y: lineY)
         }
-        .frame(width: 140, height: 94)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { down = true }
-        }
-        .accessibilityHidden(true)
     }
 }
 
