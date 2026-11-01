@@ -1,0 +1,48 @@
+id,lang,script,flight,event,gate,new_time,should_notify
+01,zh,中华航空公司此 一百班机飞往东京成田的旅客请注意，本班机登机门由 A  更改为 B7 请前往 B7 登机门候机。。,CI100,gate_change,B7,,True
+02,en,"Attention passengers on China Airlines flight CI 100 to Tokyo Narita, your departure gate has been changed from A5 to B7..",CI100,gate_change,B7,,True
+03,zh,华航此100班机因机件检修，修，起飞时间延后至后至 15 点 20 分，造成不便敬请见谅。。,CI100,delay,,15:20,True
+04,en,China Airlines flight CI100 to Tokyo is delayed. The new departure time is 3.20 PM we apologize for the inconvenience.,CI100,delay,,15:20,True
+05,zh,"搭乘中华航空CI 100班机前往东京的旅客,现在开始登机,请至A登机门登机。",CI100,boarding,A5,,True
+06,en,China Airlines flight CI 100 to Tokyo Narita is now boarding at gate A5. 5. Passengers seated in rows 40 rows 40 to 60 may board now..,CI100,boarding,A5,,True
+07,zh,这诗词一百番机飞往东京的最后登机广播，尚未登登机的旅客请立即前往 A 登机门。,CI100,final_call,A5,,True
+08,en,This is the final boarding call for China Airlines flight flight CI 100 to Tokyo. All remaining passengers please proceed immediately to gate A5.,CI100,final_call,A5,,True
+09,zh,中华航空公司宣布，自一百班机飞往东京成田，因天候因素取消，请旅客至航空公司柜台办理后续事宜。,CI100,cancel,,,True
+10,en,China Airlines regrets to announce that flight CI100 to Tokyo Narita has been cancelled. Please contact the transfer desk for assistance.,CI100,cancel,,,True
+11,zh,长荣航空BR192班机，飞往东京羽田的旅客请注意，登机门更改更改为C3。,BR192,gate_change,C3,,False
+12,en,Attention please. Eva Air Flight BR 192 to Tokyo Haneda is now departing from gate C3.,BR192,gate_change,C3,,False
+13,zh,中华航空子118班机，飞往东往东京成田。起飞时间延后至 16 点。,CI110,delay,,16:00,False
+14,en,China Airlines flight CI110 to Tokyo Narita is delayed until 4 PM.,CI110,delay,,16:00,False
+15,zh,星宇航空JX 800 班机飞往东京成田的旅客，现在开始登机，请至 28 登机门。,JX800,boarding,A8,,False
+16,en,Starlux Flight JX 800 to Tokyo Narita Narita is now boarding at gate A8..,JX800,boarding,A8,,False
+17,zh,中华航空子101班机前往大阪的旅客，这是最后登机广播，请至A6登机门。,CI101,final_call,A6,,False
+18,en,Final call for China Airlines flight CI 1000 to Hong Kong at gate D2..,CI1000,final_call,D2,,False
+19,zh,"宇克明好,请勿将行李放置无人看管,可疑物品物品请通知服务人员。。",,info,,,False
+20,en,"For your safety, please do not leave your baggage unattended at any time.",,info,,,False
+21,zh,"陈大明明先生，搭乘此一百班一百班机前往东京的陈大明先生, 请立即到 搭登机门柜台。",CI100,name_call,A5,,True
+22,en,"passenger one mailing traveling on CI 100 to 100 to Tokyo, please report to the the gate A5 counter immediately.",CI100,name_call,A5,,True
+23,zh,华航CI100班机登机门门改到B7。,CI100,gate_change,B7,,True
+24,en,"flight CI100 to Narita, gate gate change, now gate B7.",CI100,gate_change,B7,,True
+25,zh,四一百一百班机起飞时间延后，新的登机时间将另行广播。。,CI100,delay,,,True
+26,en,China Airlines flight CI100 is delayed a new departure time will be announced shortly,CI100,delay,,,True
+27,zh,"搭乘国泰航空CX451CX451班机前往香港的旅客,旅客,登机门由RA改为A9。。",CX451,gate_change,A9,,False
+28,en,"Cafe Pacific Flight CX 451 to Hong Kong, Gate A5 has changed to A9..",CX451,gate_change,A9,,False
+29,zh,"中华航空此一百语词,一百一十班机旅客请注意,此一百改至B7登机机门,此一百一十维持A7。。",CI100,gate_change,B7,,True
+30,en,"Passengers on CI110, your gate remains A7. Passengers on CI100 please note your new gate is B7.",CI100,gate_change,B7,,True
+31,zh,中华航空公司自一百班机飞往东京成田的旅客请注意，因台风影响，本班机起飞时间提前至十点五十分，请请尽速前往搭登机门。,CI100,time_change,A5,10:50,True
+32,en,"Attention passengers on China Airlines flight CI 100 to Tokyo Narita, due to the typhoon, departure has been moved earlier to 10 50 AM, please proceed to gate A5 now.",CI100,time_change,A5,10:50,True
+33,zh,华航词 110 班机，飞往东京成田，因台风影响，起飞时间提前至 9 点 25 分。,CI110,time_change,,09:25,False
+34,en,China Airlines flight CI110 to Tokyo Narita will now depart earlier at 9.25 AM.,CI110,time_change,,09:25,False
+35,zh,四一百班机飞往东京的旅客请注意，本班机登机门由B七改为A，请回到哈登机门候机。。,CI100,gate_change,A5,,True
+36,en,"passengers on on CI 100 to Tokyo, your gate has changed back from B7 to A5.",CI100,gate_change,A5,,True
+37,zh,修正广播，中华航空慈一百班班机登机门人为A，先前更改至B7的广播广播有误，造成不便，敬请见谅。,CI100,gate_change,A5,,True
+38,en,Correction: China China Airlines flight CI100 100 will depart from Gate A5 as originally scheduled. Not Gate B7. We apologize for the confusion.,CI100,gate_change,A5,,True
+39,zh,中华航空此一百班机，飞往东京成田的旅客请注意，登机门更改为BER。,CI100,gate_change,B1R,,True
+40,en,"change for China Airlines flight CI 100 to Tokyo Narita, your new gate gate is B1R.",CI100,gate_change,B1R,,True
+41,en,"Flight CI 100 to Narita, gate change, now gate B1R.",CI100,gate_change,B1R,,True
+42,zh,星宇航空JX 800 班机飞往东京成田的旅客，登机门更改为 BER!,JX800,gate_change,B1R,,False
+43,zh,中华航空公司公司宣布，因台风影响，以下班机取消，此130飞往扎札幌，此110飞往东京往东京成田，此100飞往东京成田，请旅客至航空公司柜台办理后续事宜。。,CI100,cancel,,,True
+44,en,"Due to the typhoon, China Airlines regrets to announce the cancellation of the following flights, CI 130 to Sapporo, CI 110 to Tokyo Narita, and CI 100 to Tokyo Narita.",CI100,cancel,,,True
+45,zh,长荣航空宣布因台风影响，以下班机取消，BR 196 飞往东京京成田，BR 198 飞往东京成田，BR 116 飞往札幌。,,cancel,,,False
+46,en,"Due to the typhoon, the following flights are cancelled. CI101 to Osaka, CI1000 to Hong Kong, and CI10 to Los Angeles.",,cancel,,,False
+47,zh,"澳门航空NX 631, NX 611, NX 615, NX 621 班机因台风全部取消。",,cancel,,,False

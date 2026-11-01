@@ -55,8 +55,12 @@ flight in the live data, read a boarding pass photo, translate a line.
 
 ## Evaluation
 
-See [`evaluation/prepared-before-hackathon/`](evaluation/prepared-before-hackathon/): 47 announcements
-written before the hackathon (47/47 right) and 10 held out (10/10 alerts right, 7/10 every field right).
+- [`evaluation/prepared-before-hackathon/`](evaluation/prepared-before-hackathon/): 47 announcements written
+  before the hackathon (47/47 right on the text) and 10 held out (10/10 alerts right, 7/10 every field right).
+- [`evaluation/speech-recognition/`](evaluation/speech-recognition/): the same announcements as speech, through
+  Muse Voice Transcribe: 47/47 alerts right. Every miss is a Mandarin gate number the recognizer dropped,
+  which the app marks as unclear and fills in from live flight data. Heard live by the app on an iPhone,
+  12/12 alerts right.
 
 ## What was built during the hackathon
 

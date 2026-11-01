@@ -1,0 +1,13 @@
+id,lang,script,flight,event,gate,new_time,should_notify
+01,zh,中华航空公司此一百班机班机飞往东京成田的旅客请注意，本班机登机门由A更改为B7。请前往B7登机门候机。,CI100,gate_change,B7,,True
+02,en,"Attention passengers on China Airlines flight CI100 to Tokyo Narita, your departure gate has been changed from A5 to B7",CI100,gate_change,B7,,True
+04,en,China Airlines flight CI100 to Tokyo is delayed. The new departure time is 3:20 PM. We apologize for the inconvenience.,CI100,delay,,15:20,True
+05,zh,搭乘中华航空此100班机前往东京的旅客，现在开始登机，请至A登机门登机。,CI100,boarding,A5,,True
+08,en,This is the final boarding call for China Airlines flight CI100 to Tokyo. All remaining passengers please proceed immediately to gate A5.,CI100,final_call,A5,,True
+13,zh,中华航空此118班机飞往东京成田，起飞时间延后至 16 点，,CI110,delay,,16:00,False
+18,en,final call for China Airlines flight CI1000 to Hong Kong at gate,CI1000,final_call,D2,,False
+21,zh,搭乘此 100 班机前往东京的陈大明先生请立即到 A 登机门柜台,CI100,name_call,A5,,True
+27,zh,搭乘国泰航空 CX 451 班机前往香港的旅客，登机门由 A 改为 9。,CX451,gate_change,A9,,False
+32,en,Attention passengers on China Airlines flight CI100 to Tokyo Narita due to the typhoon departure has been moved earlier to 10:50 AM please proceed to gate A5 now,CI100,time_change,A5,10:50,True
+39,zh,中华航空此 100 班机飞往东京成田的旅客请注意，登机门更改为 BER。,CI100,gate_change,B1R,,True
+40,en,"Gate change for China Airlines flight CI100 to Tokyo Narita, your new gate is B1R",CI100,gate_change,B1R,,True
