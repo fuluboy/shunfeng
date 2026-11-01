@@ -217,6 +217,19 @@ final class ListenerModel: ObservableObject {
         }
         network.start(queue: .main)
         calls.onCallEnded = { [weak self] in self?.interruptionEnded() }
+        audio.onReconfigured = { [weak self] result in
+            MainActor.assumeIsolated {
+                switch result {
+                case .success(let name):
+                    EventLog.write("mic_reconfigured", ["in_use": name])
+                    self?.micInUse = name
+                case .failure(let error):
+                    EventLog.write("mic_reconfigure_failed", ["error": error.localizedDescription])
+                    // The reconnect path retries the microphone and says so if it keeps failing.
+                    self?.reconnect()
+                }
+            }
+        }
         // Still marked as listening at launch: the last session ended without the user pressing stop
         // (swiped away, killed, phone restarted). Say so in the app too: tapping the watchdog notification
         // opens the app and removes the notification, so its text is easy to miss.

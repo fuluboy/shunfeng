@@ -17,19 +17,25 @@ enum MicChoice: String, CaseIterable, Identifiable {
 
 /// Microphone → 16 kHz, 16-bit mono PCM chunks for Muse Voice Transcribe.
 final class AudioCapture {
-    private let engine = AVAudioEngine()
+    /// A new engine for every start: an engine that has run keeps the microphone format it first saw, and
+    /// after a switch to a Bluetooth mic, installing a tap with that stale format raised an exception and
+    /// closed the app (AirPods test, Nov 1).
+    private var engine = AVAudioEngine()
+    private var configurationObserver: NSObjectProtocol?
+    private var restart: (() -> Void)?
+    /// When iOS reconfigures audio (switching to a Bluetooth mic, plugging one in) it stops the engine.
+    /// Called after restarting for that, with the microphone now in use, or the error if it failed.
+    var onReconfigured: ((Result<String, Error>) -> Void)?
     private let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
 
     /// `onChunk` gets about 85 ms of audio at a time; `onLevel` gets a 0...1 loudness for the meter.
     /// Returns the name of the microphone actually used (the chosen one may not be connected).
     @discardableResult
     func start(mic: MicChoice, onChunk: @escaping (Data) -> Void, onLevel: @escaping (Float) -> Void) throws -> String {
-        // Restarting replaces the tap rather than adding a second one, which raises an exception and ends
-        // the app. Always remove it: after a phone call iOS has stopped the engine but the old tap is still
-        // installed (found in the phone test on Nov 1: the app closed as the call ended).
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        engine.reset()
+        // Remove the old tap: a second one raises an exception and ends the app. After a phone call iOS has
+        // stopped the engine but the old tap is still installed (phone test, Nov 1).
+        stopEngine()
+        engine = AVAudioEngine()
         let session = AVAudioSession.sharedInstance()
         // The mic stays on in the background through the audio background mode; a wired or USB-C
         // lavalier mic becomes the input automatically.
@@ -94,12 +100,35 @@ final class AudioCapture {
         }
         engine.prepare()
         try engine.start()
+
+        // Switching to a Bluetooth mic happens a moment after start, and iOS then stops the engine: no audio
+        // reached the server for 15 seconds and it closed the stream. Start again with the new format.
+        restart = { [weak self] in
+            guard let self else { return }
+            do {
+                let name = try self.start(mic: mic, onChunk: onChunk, onLevel: onLevel)
+                self.onReconfigured?(.success(name))
+            } catch {
+                self.onReconfigured?(.failure(error))
+            }
+        }
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            self?.restart?()
+        }
         return session.currentRoute.inputs.first?.portName ?? port?.portName ?? "麥克風"
     }
 
-    func stop() {
+    private func stopEngine() {
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        configurationObserver = nil
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+    }
+
+    func stop() {
+        stopEngine()
+        restart = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
