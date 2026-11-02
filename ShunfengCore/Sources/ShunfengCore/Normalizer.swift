@@ -25,7 +25,7 @@ public enum Normalizer {
     /// "日本航空8261便", "Japan Airlines flight eight two six one" (heard in a real recording).
     static let airlines: [(name: String, code: String)] = [
         ("中華航空", "CI"), ("華航", "CI"), ("China Airlines", "CI"), ("チャイナエアライン", "CI"),
-        ("長榮航空", "BR"), ("長榮", "BR"), ("EVA Air", "BR"), ("Eva Air", "BR"), ("エバー航空", "BR"),
+        ("長榮航空", "BR"), ("長榮", "BR"), ("EVA Air", "BR"), ("Eva Air", "BR"), ("Ava Air", "BR"), ("EVA Airways", "BR"), ("エバー航空", "BR"),
         ("星宇航空", "JX"), ("新宇航空", "JX"), ("Starlux", "JX"), ("スターラックス", "JX"),
         ("國泰航空", "CX"), ("Cathay Pacific", "CX"), ("キャセイパシフィック", "CX"), ("澳門航空", "NX"),
         ("日本航空", "JL"), ("Japan Airlines", "JL"), ("JAL", "JL"),

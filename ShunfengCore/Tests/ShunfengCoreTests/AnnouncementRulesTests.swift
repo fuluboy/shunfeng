@@ -17,6 +17,8 @@ final class AnnouncementRulesTests: XCTestCase {
         XCTAssertEqual(r.flight, "BR188")
         XCTAssertEqual(r.gate, "8")
         // Codeshare lists keep their codes: each name is followed by its own.
+        // "EVA Air flight BR 168" was heard as "Ava Air Flight VR 168".
+        XCTAssertEqual(AnnouncementRules.read("Ava Air Flight VR 188 to Tokyo Haneda is delayed.", myFlight: "BR188").flight, "BR188")
         let codeshare = AnnouncementRules.read("上海航空FM896、東方航空MU8634，請到141號登機門。", myFlight: "MU8634")
         XCTAssertEqual(codeshare.flight, "MU8634")
     }
