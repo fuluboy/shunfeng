@@ -65,9 +65,10 @@ if (3...5).contains(args.count), args[1] == "eval" {
 }
 
 // shunfeng-listen translate "<text>": translate an announcement with Muse Spark Open, as the app does.
-if args.count == 3, args[1] == "translate", let key = ProcessInfo.processInfo.environment["BASETEN_API_KEY"] {
+if (3...4).contains(args.count), args[1] == "translate", let key = ProcessInfo.processInfo.environment["BASETEN_API_KEY"] {
     let started = Date()
-    let text = try await MuseSparkOpen(apiKey: key).translate(args[2])
+    let target: MuseSparkOpen.Target = args.count == 4 && args[3] == "en" ? .english : .traditionalChinese
+    let text = try await MuseSparkOpen(apiKey: key).translate(args[2], into: target)
     print(String(format: "%.1fs", Date().timeIntervalSince(started)), text)
     exit(0)
 }

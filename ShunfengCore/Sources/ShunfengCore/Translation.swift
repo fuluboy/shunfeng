@@ -42,9 +42,13 @@ public struct MuseSparkOpen: Sendable {
             "reasoning_effort": "low",
             "max_tokens": 800,    // the model reasons first; less than this can leave no room for the answer
             "messages": [
+                // "Keep numbers as they appear" left "五号" untranslated in English (phone test, Nov 2).
                 ["role": "system", "content": "Translate this airport announcement, as heard by speech recognition, "
-                    + "into \(target.instruction). Keep flight numbers, gate numbers and times exactly "
-                    + "as they appear. Don't add anything that isn't said. Reply with the translation only."],
+                    + "into \(target.instruction). Translate everything, including numbers written as words, and "
+                    + "write gate numbers, flight numbers and times with digits (五號 → gate 5). Keep flight codes "
+                    + "like BR188 as they are. Speech recognition makes mistakes: if a name is clearly a misheard "
+                    + "airline or place, translate what it most likely is. Don't add anything that isn't said. "
+                    + "Reply with the translation only."],
                 ["role": "user", "content": announcement],
             ],
         ]
