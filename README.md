@@ -1,55 +1,64 @@
-# Shunfeng — your ears for the journey
+# Shunfeng
 
-An iPhone app for deaf and hard-of-hearing travelers. It listens to airport announcements and alerts you only when one is about your flight: gate changes, delays, boarding, final call, cancellations. You get the message in your language plus a vibration pattern you can feel in your pocket.
+Shunfeng (順風, "fair winds") is an iPhone app for deaf and hard-of-hearing travelers. It listens to airport announcements for you and buzzes only when one is about your flight.
 
-It's built around one idea: help people be sure. Shunfeng never pretends to know more than it heard. When something is unclear, it says so, double-checks against live flight data, and helps you ask airport staff.
+Airports still tell you most things out loud. If your gate moves or your flight is delayed, the people around you hear it and start walking. If you can't hear it, you find out from the departure board, if you happen to look in time. Shunfeng keeps the phone's microphone on while you wait, works out which announcements are yours, and tells you with a vibration you can feel in your pocket and a notification you can read.
 
-Built for the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon) (Indie Developer track, "Build for Your World").
+I built it for the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/meta-ai-developer-hackathon) (Indie Developer track, "Build for Your World"). It was designed around airports in Taiwan, where announcements come in Mandarin and then English, and it handles Japanese ones too.
 
-## What it does
+## How it works
 
-- **Listens** with the iPhone microphone, screen off or in a pocket, and streams to Muse Voice Transcribe.
-- **Reads** each announcement with rules that find the flight, the event, the gate and the time, in Mandarin,
-  English and Japanese, including spoken codes ("C I one zero zero") and airline names without codes.
-- **Decides "sure" or "maybe"**: an alert needs your flight number; a different destination, or a gate heard
-  two different ways, turns it into "maybe, please check" rather than a confident wrong answer.
-- **Checks** against Taoyuan Airport's live flight data every 5 minutes, and alerts on data changes too,
-  in case the microphone missed an announcement.
-- **Alerts** with a time-sensitive notification and a vibration language you can feel:
-  1 long buzz = maybe, 2 = a change, 3 = go now (boarding, final call), one very long = cancelled.
-- **Stops when the trip is over**: once the flight data shows your flight has left, or after 30 minutes
-  without network (most likely airplane mode; shorter drops in elevators just pause and resume). A cancellation or a move to the next day is told first, then you're asked whether to
-  stop. Without flight data, it asks around the departure time and stops if nobody answers. Can be turned off.
-- **Reads your boarding pass** from a photo, including handwritten changes, so you don't type the flight.
-- **Translates** English and Japanese announcements into Traditional Chinese as a reading aid.
-- **Speaks your language**: the whole app, its notifications and its translations switch between Traditional
-  Chinese and English in Settings. Announcements are translated into the language you pick.
-- **Helps you ask** with a large bilingual card to show airport staff.
+You type your flight number, or take a photo of your boarding pass and the app reads it. Then you press Start listening and put the phone away.
+
+The microphone streams to Muse Voice Transcribe, which turns each announcement into text. Rules on the phone read that text for a flight number, what happened (gate change, delay, boarding, final call, cancellation, a passenger being paged), the gate and the time. Only announcements that match your flight reach you.
+
+The vibration says how urgent it is, so you know before you look:
+
+| Buzzes | Meaning |
+| --- | --- |
+| 1 | Maybe about you, please check |
+| 2 | Something changed (gate, time) |
+| 3 | Go now (boarding, final call) |
+| One long buzz | Cancelled |
+
+For boarding and final calls, the notification comes back every 30 seconds, up to four times, until you answer. "I'm at the gate" quiets them.
+
+Speech recognition makes mistakes, so the app is careful about what it claims. If it hears your flight number but not the news, or the announcement names a different destination, it says "maybe" instead of sounding sure. If two announcements give different gates, it shows both and asks you to check the board. For flights from Taipei Taoyuan it also compares what it heard with the airport's live flight data every five minutes, and tells you when the data changes on its own, in case an announcement was missed. When it is still unclear, a large card in Chinese and English helps you ask staff.
+
+Announcements in another language are translated into yours. The whole app, including notifications, works in English or Traditional Chinese.
+
+The app also tries not to fail quietly. During a phone call it pauses and picks up again when you hang up. Without signal it pauses and resumes when the network is back. If the app is closed or the phone restarts, a notification tells you it is no longer listening. When your flight departs, it stops by itself.
 
 ## Meta models
 
-- **Muse Voice Transcribe** (realtime WebSocket): live speech-to-text. Keyword boosting is off on purpose:
-  it turned a nearby flight number into the user's, which would cause false alerts.
-- **Muse Spark** (Meta Model API): reads boarding pass photos into structured fields. On 12 real EVA Air
-  and ANA boarding passes (rotated photos, highlighter, handwriting), all 8 fields were right on all 12,
-  about 5 seconds each.
-- **Muse Spark Open** (open weights, served by Baseten): translates announcements, about 2.5 seconds.
-  The translation never decides anything; whose flight it is and what happened come from the rules
-  and the flight data.
+**Muse Voice Transcribe** does the listening, as a live stream from the phone. I turned off its keyword hints on purpose. Giving it the user's flight number made it hear that number in announcements for other flights (a CI110 delay came back as CI100), which would mean false alarms. The app sends plain audio and decides afterwards.
+
+**Muse Spark** reads boarding pass photos into flight, date, route, gate, times and seat. It also catches handwritten changes, which matter because staff often write a new boarding time on the pass. On 12 real EVA Air and ANA passes, including rotated photos and highlighter marks, it read all eight fields correctly on every one, in about five seconds.
+
+**Muse Spark Open**, Meta's open-weight model served through Baseten, translates announcements in about two to three seconds. It also fixes some recognition errors as it goes: a Mandarin announcement transcribed as "潮融航空188" came back as "EVA Air flight BR188". The translation helps you read; it doesn't decide whether an announcement is about you. That stays with the rules and the flight data.
+
+## What testing showed
+
+Most of the design came from testing on an iPhone, at home with a speaker and with real recordings:
+
+- Recording audio the usual way silenced the app's own notifications, so alerts showed up with no sound and no vibration. Switching the audio mode fixed it.
+- Live transcription once turned "CI1000 to Hong Kong" into "CI 100". Checking the destination is what stops that from becoming a false alarm.
+- At Haneda, announcements use airline names instead of codes and plain numbers for gates, so the rules learned both.
+- Letters inside Mandarin speech are hard to recognize ("BR188" came back as "PS188" and worse), so the airline's spoken name now decides the code, and the flight number alone, plus the destination, is enough.
+- The phone's own microphone caught 12 of 12 announcements from a speaker one to two meters away. AirPods caught 3, so the phone's microphone is the default.
+- Listening with the screen off uses about 5% of the battery an hour. The speech service ends each session after an hour, and the app reconnects without a gap.
 
 ## Privacy
 
-- To read announcements, the app streams microphone audio to Meta's Muse Voice Transcribe while listening.
-  Nothing is recorded to disk.
-- On the phone, the app keeps only transcripts about flights (a flight number or an announcement event).
-  Anything else the microphone hears, such as people talking nearby, is logged only as "a line of n
-  characters". A test-mode switch in Settings keeps everything, for development only.
-- Boarding pass photos are sent to Muse Spark to read the flight, and are not stored.
-- Listening stops on its own when the flight departs, to avoid listening longer than needed.
+While you listen, the app streams microphone audio to Muse Voice Transcribe. Nothing is recorded to a file.
+
+On the phone, the app keeps only transcripts that are about flights. Anything else the microphone hears, like people talking nearby, is logged only as "a line of so many characters". A test mode in Settings keeps everything, for development.
+
+Boarding pass photos are sent to Muse Spark to be read and aren't stored.
 
 ## Building
 
-Requires Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen) and an iPhone.
+You need Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen) and an iPhone.
 
 ```
 export META_API_KEY=...       # Meta Model API key
@@ -58,37 +67,26 @@ xcodegen generate
 open Shunfeng.xcodeproj
 ```
 
-Keys are injected into the app's Info.plist at build time and never committed. A build made this way
-contains your keys, so keep it for your own testing.
+The keys are written into the app at build time and are never committed. A build made this way contains your keys, so keep it to yourself.
 
-The rules, flight data and API clients are in the `ShunfengCore` Swift package: `cd ShunfengCore && swift test`.
-`swift run shunfeng-listen` has development tools: stream a WAV file as the microphone would, look up a
-flight in the live data, read a boarding pass photo, translate a line.
+The rules, the flight data and the API clients live in the `ShunfengCore` Swift package (`cd ShunfengCore && swift test`). `swift run shunfeng-listen` has a few development tools: stream a WAV file the way the microphone would, look up a flight in Taoyuan's live data, read a boarding pass photo, translate a line, and score the rules on an evaluation file.
 
 ## Evaluation
 
-- [`evaluation/prepared-before-hackathon/`](evaluation/prepared-before-hackathon/): 47 announcements written
-  before the hackathon (47/47 right on the text) and 10 held out (10/10 alerts right, 7/10 every field right).
-- [`evaluation/speech-recognition/`](evaluation/speech-recognition/): the same announcements as speech, through
-  Muse Voice Transcribe: 47/47 alerts right. Every miss is a Mandarin gate number the recognizer dropped,
-  which the app marks as unclear and fills in from live flight data. Heard live by the app on an iPhone,
-  12/12 alerts right.
+[`evaluation/prepared-before-hackathon/`](evaluation/prepared-before-hackathon/) has 47 test announcements in Mandarin and English with the expected answers, plus 10 held back and never used to tune the rules. On the written text, the rules get all 47 right, and alert correctly on all 10 held-out ones (7 of 10 with every detail right).
 
-## What was built during the hackathon
+[`evaluation/speech-recognition/`](evaluation/speech-recognition/) has the same announcements after speech recognition. Through Muse Voice Transcribe, the alert decision is right on 47 of 47. The misses on details are Mandarin gate numbers the recognizer dropped, which the app marks as unclear and fills in from the flight data. Heard live by the app on an iPhone, it was 12 of 12.
 
-All code in this repository was written during the hackathon, starting Oct 27, 2026.
+## Before the hackathon
 
-Before the hackathon (Oct 23–26), I did some research outside this repo:
+All the code here was written during the hackathon, from October 27, 2026. Before that, from October 23 to 26, I did some groundwork outside this repository:
 
-- a set of synthetic airport announcement scripts with answer keys, used to measure accuracy. With the
-  organizers' permission it is included, clearly labeled, in `evaluation/prepared-before-hackathon/`
-- Python prototypes for parsing announcements (not included; the rules were rewritten in Swift)
-- snapshots of Taipei Taoyuan Airport's public open-data flight feed (not included)
+- wrote the synthetic test announcements and their answers (included, with the organizers' permission, in `evaluation/prepared-before-hackathon/`)
+- tried parsing announcements in Python (not included; the rules were rewritten in Swift)
+- saved snapshots of Taoyuan Airport's open flight data (not included)
 
-## Flight data
+## Data and license
 
 Live flight status comes from Taoyuan International Airport's open data (ADIP), published under Taiwan's Open Government Data License.
 
-## License
-
-[MIT](LICENSE). Flight data from ADIP keeps its own license (above).
+The code is under the [MIT license](LICENSE).
