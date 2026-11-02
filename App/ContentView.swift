@@ -314,7 +314,10 @@ struct ContentView: View {
         }
         let sure = item.certainty == .sure
         return .init(zh: "\(ListenerModel.headline(for: item, in: .zh))（\(sure ? "廣播聽到" : "可能，待確認")）",
-                     en: "Announcement I got: \u{201C}\(item.original)\u{201D}", sure: sure)
+                     // English for international staff: the English translation, or the English headline. The
+                     // raw transcript can be another language, and in Simplified Chinese.
+                     en: "Announcement I got: \u{201C}\((model.language == .en ? item.translation : nil) ?? ListenerModel.headline(for: item, in: .en))\u{201D}",
+                     sure: sure)
     }
 
     private var listeningSection: some View {
