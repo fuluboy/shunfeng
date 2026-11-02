@@ -30,13 +30,14 @@ if args.count == 3, args[1] == "pass", let key = ProcessInfo.processInfo.environ
     exit(0)
 }
 
-// shunfeng-listen eval <announcements.csv>: score the rules on the written announcement scripts
+// shunfeng-listen eval <announcements.csv> [flight] [destination]: score the rules on the written announcement scripts
 // (no speech recognition), as a traveler on CI100 to Tokyo would get them.
-if args.count == 3, args[1] == "eval" {
+if (3...5).contains(args.count), args[1] == "eval" {
     var rows = ADIP.csvRows(try String(contentsOfFile: args[2], encoding: .utf8))
     let header = rows.removeFirst().map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\u{FEFF} ")) }
     func column(_ name: String) -> Int { header.firstIndex(of: name)! }
-    let user = UserFlight(code: "CI100", destination: "東京")
+    // Optional flight and destination; the evaluation set is written for CI100 to Tokyo.
+    let user = UserFlight(code: args.count > 3 ? args[3] : "CI100", destination: args.count > 4 ? args[4] : "東京")
     var allRight = 0, notifyRight = 0, total = 0
     for row in rows where row.count == header.count {
         total += 1
