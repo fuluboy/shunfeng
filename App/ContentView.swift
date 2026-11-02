@@ -543,7 +543,10 @@ struct AlertCard: View {
                 Text(L("\(item.time.formatted(date: .omitted, time: .shortened)) \(AnnouncementLanguage.name(of: item.original))廣播",
                        "\(item.time.formatted(date: .omitted, time: .shortened)) \(AnnouncementLanguage.name(of: item.original)) announcement"))
                     .font(Theme.caption).foregroundStyle(Theme.textSecondary)
-                Text("「\(item.original)」").font(Theme.caption).foregroundStyle(Theme.textSecondary)
+                // What speech recognition heard, word for word (names can be misheard); the translation below
+                // reads it properly.
+                Text(L("語音辨識原文：「\(item.original)」", "Speech recognition heard: \u{201C}\(item.original)\u{201D}"))
+                    .font(Theme.caption).foregroundStyle(Theme.textSecondary)
                 if let translation = item.translation {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(L("中文翻譯（Muse Spark Open，僅供參考）")).font(Theme.caption).foregroundStyle(Theme.textSecondary)

@@ -1030,6 +1030,7 @@ final class ListenerModel: ObservableObject {
                 // The card may have been merged with a later turn meanwhile; that text gets its own translation.
                 guard let i = heard.firstIndex(where: { $0.id == item.id && $0.original == text }) else { return }
                 heard[i].translation = translation
+                updateNotification(for: heard[i])
                 EventLog.write("translated", ["text": text, "translation": translation,
                                               "seconds": Date().timeIntervalSince(started)])
             } catch {
@@ -1054,11 +1055,15 @@ final class ListenerModel: ObservableObject {
                 EventLog.write("at_gate_cleared", ["event": event?.rawValue ?? ""])
             }
             if let event { haptics.play(Haptics.Level(event)) }
-            notify(title: repeatCount > 1 ? L("\(title)（第 \(repeatCount) 次廣播）", "\(title) (announced \(repeatCount) times)") : title, body: item.original,
-                   heardID: item.id, urgent: boardingCall)
+            let shown = repeatCount > 1 ? L("\(title)（第 \(repeatCount) 次廣播）", "\(title) (announced \(repeatCount) times)") : title
+            alertTitles[item.id] = shown
+            notify(title: shown, body: notificationBody(item), heardID: item.id, urgent: boardingCall,
+                   identifier: Self.alertID(item.id))
         case .maybe:
             haptics.play(.maybe)
-            notify(title: L("可能跟你的班機有關"), body: item.note ?? item.original, heardID: item.id)
+            alertTitles[item.id] = L("可能跟你的班機有關")
+            notify(title: L("可能跟你的班機有關"), body: item.note ?? notificationBody(item), heardID: item.id,
+                   identifier: Self.alertID(item.id))
         case .notYours:
             break
         }
@@ -1066,12 +1071,44 @@ final class ListenerModel: ObservableObject {
 
     static let urgentRepeatPrefix = "urgent-repeat-"
 
+    /// One notification per announcement, so a translation can replace its text when it arrives.
+    static func alertID(_ id: UUID) -> String { "alert-" + id.uuidString }
+    private var alertTitles: [UUID: String] = [:]
+
+    /// The announcement as the user reads it: in English, a Mandarin transcript (often with misheard
+    /// names, "長榮" heard as "潮融") says nothing, so the notification waits for the translation instead.
+    private func notificationBody(_ item: Heard) -> String {
+        if let translation = item.translation { return translation }
+        guard MuseSparkOpen.needsTranslation(item.original, into: language == .en ? .english : .traditionalChinese) else {
+            return item.original
+        }
+        return L("「\(item.original)」（翻譯中…）", "Translating the announcement…")
+    }
+
+    /// The translation arrived: quietly put it into the announcement's notification, if it is still there.
+    private func updateNotification(for item: Heard) {
+        guard let title = alertTitles[item.id], let translation = item.translation else { return }
+        let id = Self.alertID(item.id)
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            guard let old = delivered.first(where: { $0.request.identifier == id }) else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = translation + L("（機器翻譯）", " (machine translation)")
+            content.categoryIdentifier = old.request.content.categoryIdentifier
+            content.userInfo = old.request.content.userInfo
+            content.sound = nil
+            content.interruptionLevel = .passive   // update the text without alerting again
+            center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        }
+    }
+
     /// `urgent`: in the background the system vibration is the same for every alert, so boarding and
     /// final calls are repeated every 30 seconds (up to 4 times) until the user opens the app.
     /// `quiet`: into Notification Center only, no banner. `silent`: a banner, but no sound or vibration
     /// (for news during a call, which must be seen but shouldn't buzz in the user's ear).
     private func notify(title: String, body: String, heardID: UUID? = nil, urgent: Bool = false, quiet: Bool = false,
-                        silent: Bool = false, category: String? = nil) {
+                        silent: Bool = false, category: String? = nil, identifier: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -1095,7 +1132,7 @@ final class ListenerModel: ObservableObject {
         }
         EventLog.write("notify", ["title": title, "with_sound": content.sound != nil, "urgent": urgent, "quiet": quiet])
         let center = UNUserNotificationCenter.current()
-        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        center.add(UNNotificationRequest(identifier: identifier ?? UUID().uuidString, content: content, trigger: nil))
 
         guard urgent, UIApplication.shared.applicationState != .active else { return }
         for n in 1...4 {
