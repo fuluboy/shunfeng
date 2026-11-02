@@ -722,7 +722,7 @@ final class ListenerModel: ObservableObject {
         let text: String
         switch change {
         case .gate(_, let to): text = L("航班資料：登機門改到 \(to)", "Flight data: gate changed to \(to)")
-        case .status(_, let to): text = L("航班資料：班機狀態變成「\(to)」", "Flight data: status is now \u{201C}\(to)\u{201D}")
+        case .status(_, let to): text = L("航班資料：班機狀態變成「\(to)」", "Flight data: status is now \u{201C}\(FlightStatusText.show(to))\u{201D}")
         }
         dataNotice = (text, Date())
         haptics.play(.change)
@@ -1035,6 +1035,8 @@ final class ListenerModel: ObservableObject {
                                               "seconds": Date().timeIntervalSince(started)])
             } catch {
                 EventLog.write("translate_failed", ["error": error.localizedDescription])
+                // Never leave "Translating…" (or a transcript the user can't read) in the notification.
+                if let i = heard.firstIndex(where: { $0.id == item.id }) { updateNotification(for: heard[i], failed: true) }
             }
         }
     }
@@ -1082,24 +1084,49 @@ final class ListenerModel: ObservableObject {
         guard MuseSparkOpen.needsTranslation(item.original, into: language == .en ? .english : .traditionalChinese) else {
             return item.original
         }
-        return L("「\(item.original)」（翻譯中…）", "Translating the announcement…")
+        return L("「\(item.original)」（翻譯中…）", "\(aboutLine(item)) Translating…")
     }
 
-    /// The translation arrived: quietly put it into the announcement's notification, if it is still there.
-    private func updateNotification(for item: Heard) {
-        guard let title = alertTitles[item.id], let translation = item.translation else { return }
+    /// What the rules read, in the app's language, for when the words themselves can't be shown.
+    private func aboutLine(_ item: Heard) -> String {
+        let lang = AnnouncementLanguage.name(of: item.original)
+        let flight = item.reading.flight ?? flightCode
+        return L("\(lang)廣播，關於 \(flight)。", "\(lang) announcement about \(flight).")
+    }
+
+    /// The translation arrived (or failed): quietly replace the announcement's notification text, and the
+    /// text of any final-call repeats still waiting, so the user never sees a language they didn't choose.
+    private func updateNotification(for item: Heard, failed: Bool = false) {
+        guard let title = alertTitles[item.id] else { return }
+        let body: String
+        if let translation = item.translation {
+            body = translation + L("（機器翻譯）", " (machine translation)")
+        } else if failed {
+            body = L("\(aboutLine(item))翻譯暫時無法使用。", "\(aboutLine(item)) Translation isn't available right now.")
+        } else {
+            return
+        }
         let id = Self.alertID(item.id)
+        let heardID = item.id.uuidString
         let center = UNUserNotificationCenter.current()
         center.getDeliveredNotifications { delivered in
             guard let old = delivered.first(where: { $0.request.identifier == id }) else { return }
             let content = UNMutableNotificationContent()
             content.title = title
-            content.body = translation + L("（機器翻譯）", " (machine translation)")
+            content.body = body
             content.categoryIdentifier = old.request.content.categoryIdentifier
             content.userInfo = old.request.content.userInfo
             content.sound = nil
             content.interruptionLevel = .passive   // update the text without alerting again
             center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        }
+        center.getPendingNotificationRequests { pending in
+            for request in pending where request.identifier.hasPrefix(Self.urgentRepeatPrefix)
+                && request.content.userInfo["heardID"] as? String == heardID {
+                guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else { continue }
+                content.body = body
+                center.add(UNNotificationRequest(identifier: request.identifier, content: content, trigger: request.trigger))
+            }
         }
     }
 
