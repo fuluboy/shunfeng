@@ -72,6 +72,13 @@ struct SettingsView: View {
                 } footer: {
                     Text(L("進電梯、停車場斷網時會暫停，網路恢復就自動繼續聽；斷網超過 1 分鐘會通知你留意大螢幕。斷網超過 30 分鐘（多半是飛航模式）就停止聆聽並通知你。"))
                 }
+                // Last: a developer setting, not something travelers need.
+                Section {
+                    Toggle(L("測試模式：記錄所有轉寫", "Test mode: keep every transcript"), isOn: $model.testMode)
+                } footer: {
+                    Text(L("平常 App 只在手機上保留跟航班有關的廣播文字，旁人說的話不會留下。測試模式會保留麥克風聽到的每一句話，只在開發測試時打開。",
+                           "Normally the app keeps only announcement text about flights on this phone; what people nearby say is not kept. Test mode keeps every line the microphone hears. Use it only for testing."))
+                }
             }
             .navigationTitle(L("設定"))
             .navigationBarTitleDisplayMode(.inline)

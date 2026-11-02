@@ -78,6 +78,18 @@ final class ListenerModel: ObservableObject {
     /// Stop listening when the flight has left, and offer to when it was cancelled or moved to another day.
     /// Listening is the main running cost (speech recognition is billed per hour of audio), and it also
     /// uses battery and data.
+    /// Test mode: the log keeps every transcript, for checking recordings by hand. Off by default, since
+    /// it stores the words of anyone talking near the phone.
+    @Published var testMode: Bool = UserDefaults.standard.bool(forKey: "testMode") {
+        didSet { UserDefaults.standard.set(testMode, forKey: "testMode") }
+    }
+
+    /// A transcript worth keeping: it names a flight or says something announcements say.
+    static func isAnnouncement(_ text: String, flight: String) -> Bool {
+        let r = AnnouncementRules.read(text, myFlight: flight)
+        return r.flight != nil || (r.event != nil && r.event != .info)
+    }
+
     @Published var autoStop: Bool {
         didSet { UserDefaults.standard.set(autoStop, forKey: "autoStop") }
     }
@@ -863,9 +875,14 @@ final class ListenerModel: ObservableObject {
             partial = text
         case .turnComplete(let turn, let text):
             partial = ""
-            // Every turn goes in the log, including general info the app ignores, so real-airport
-            // recordings can be checked by hand against what was actually announced.
-            EventLog.write("turn", ["turn": turn, "text": text])
+            // The log keeps what speech recognition heard only when it is about a flight. Everything else
+            // the microphone picks up (people talking nearby) is recorded as "a turn of n characters",
+            // never its words, unless test mode is on.
+            if testMode || Self.isAnnouncement(text, flight: flightCode) {
+                EventLog.write("turn", ["turn": turn, "text": text])
+            } else {
+                EventLog.write("turn", ["turn": turn, "characters": text.count, "text_kept": false])
+            }
             guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { break }
             // The recognizer can split one announcement into turns: at Haneda "日本航空8261便…最終案内" came
             // first and "百四十一番ゲート…" a few seconds later. A turn that names no flight, right after one

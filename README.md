@@ -37,6 +37,16 @@ Built for the [Meta Global AI Developer Hackathon](https://cerebralvalley.ai/e/m
   The translation never decides anything; whose flight it is and what happened come from the rules
   and the flight data.
 
+## Privacy
+
+- To read announcements, the app streams microphone audio to Meta's Muse Voice Transcribe while listening.
+  Nothing is recorded to disk.
+- On the phone, the app keeps only transcripts about flights (a flight number or an announcement event).
+  Anything else the microphone hears, such as people talking nearby, is logged only as "a line of n
+  characters". A test-mode switch in Settings keeps everything, for development only.
+- Boarding pass photos are sent to Muse Spark to read the flight, and are not stored.
+- Listening stops on its own when the flight departs, to avoid listening longer than needed.
+
 ## Building
 
 Requires Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen) and an iPhone.
