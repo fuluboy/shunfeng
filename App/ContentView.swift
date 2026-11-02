@@ -548,7 +548,7 @@ struct AlertCard: View {
                     .font(Theme.caption).foregroundStyle(Theme.textSecondary)
                 // What speech recognition heard, word for word (names can be misheard); the translation below
                 // reads it properly.
-                Text(L("語音辨識原文：「\(item.original)」", "Speech recognition heard: \u{201C}\(item.original)\u{201D}"))
+                Text(L("語音辨識原文：「\(readable(item.original))」", "Speech recognition heard: \u{201C}\(item.original)\u{201D}"))
                     .font(Theme.caption).foregroundStyle(Theme.textSecondary)
                 if let translation = item.translation {
                     VStack(alignment: .leading, spacing: 4) {
@@ -616,7 +616,7 @@ struct BroadcastRow: View {
                     .disabled(translating)
                 }
             }
-            Text(item.original).font(Theme.body)
+            Text(readable(item.original)).font(Theme.body)
                 .foregroundStyle(item.certainty == .notYours ? Theme.textSecondary : Theme.textBody)
             if let translation = item.translation, shown {
                 VStack(alignment: .leading, spacing: 4) {

@@ -28,6 +28,13 @@ func L(_ zh: String, _ en: String) -> String {
     AppLanguage.current == .zh ? zh : en
 }
 
+/// A transcript as shown to the reader. Speech recognition writes Mandarin in Simplified characters; Chinese
+/// readers in Taiwan get Traditional (the rules only convert the few characters they need).
+func readable(_ transcript: String) -> String {
+    guard AppLanguage.current == .zh else { return transcript }
+    return transcript.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? transcript
+}
+
 /// Taoyuan's flight data is in Chinese; its statuses, shown in the reader's language.
 enum FlightStatusText {
     static let english = [

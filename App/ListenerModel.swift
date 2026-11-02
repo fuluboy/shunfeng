@@ -1062,7 +1062,7 @@ final class ListenerModel: ObservableObject {
             let boardingCall = [.boarding, .finalCall].contains(event)
             if atGate && boardingCall {
                 // Already at the gate: note it without buzzing or repeating.
-                notify(title: L("（你已在登機門）\(title)", "(You're at the gate) \(title)"), body: item.original, quiet: true)
+                notify(title: L("（你已在登機門）\(title)", "(You're at the gate) \(title)"), body: notificationBody(item), quiet: true)
                 return
             }
             if atGate && [.gateChange, .delay, .timeChange, .cancel].contains(event) {
@@ -1095,9 +1095,9 @@ final class ListenerModel: ObservableObject {
     private func notificationBody(_ item: Heard) -> String {
         if let translation = item.translation { return translation }
         guard MuseSparkOpen.needsTranslation(item.original, into: language == .en ? .english : .traditionalChinese) else {
-            return item.original
+            return readable(item.original)
         }
-        return L("「\(item.original)」（翻譯中…）", "\(aboutLine(item)) Translating…")
+        return L("「\(readable(item.original))」（翻譯中…）", "\(aboutLine(item)) Translating…")
     }
 
     /// What the rules read, in the app's language, for when the words themselves can't be shown.
