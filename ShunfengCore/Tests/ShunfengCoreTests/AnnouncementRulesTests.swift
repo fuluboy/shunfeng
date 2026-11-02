@@ -11,6 +11,16 @@ final class AnnouncementRulesTests: XCTestCase {
 
     // MARK: Gate changes
 
+    func testAirlineNameOutweighsMisheardLetters() {
+        // Phone test, Nov 2: the Mandarin announcement's "BR" was transcribed as "PS".
+        let r = AnnouncementRules.read("长荣航空公司PS188班机飞往东京羽田的旅客请注意，本班机登机门由五号更改为八号，请前往八号登机门候机。", myFlight: "BR188")
+        XCTAssertEqual(r.flight, "BR188")
+        XCTAssertEqual(r.gate, "8")
+        // Codeshare lists keep their codes: each name is followed by its own.
+        let codeshare = AnnouncementRules.read("上海航空FM896、東方航空MU8634，請到141號登機門。", myFlight: "MU8634")
+        XCTAssertEqual(codeshare.flight, "MU8634")
+    }
+
     func testNumberWithoutAirline() {
         // Listening began mid-announcement and the airline was lost (phone test, Nov 2).
         let user = UserFlight(code: "BR188", destination: "Tokyo")

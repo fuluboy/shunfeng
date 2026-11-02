@@ -53,6 +53,14 @@ public enum Normalizer {
         return Pattern("(?<![A-Za-z])(\(names))\\s*(?:[Ff]light\\s*)?(?:[Nn]o\\.?\\s*)?(\\d{1,4})(?!\\d)")
     }()
 
+    /// "長榮航空公司PS188" → the letters right after an airline's name. In Mandarin announcements the recognizer
+    /// often mishears the spoken letters (BR became "PS" in a phone test, Nov 2); the full name is more reliable.
+    static let airlineThenCode: Pattern = {
+        let names = airlines.map(\.name).sorted { $0.count > $1.count }
+            .map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+        return Pattern("(?<![A-Za-z])(\(names))(公司)?\\s*(?:[Ff]light\\s*)?([A-Z]{2}) ?(\\d{1,4})(?!\\d)")
+    }()
+
     /// "flight eight two six one" → "flight 8261", "gate one four one" → "gate 141".
     static let spokenDigitsAfterKeyword = Pattern(
         "\\b(flight|gate)\\s+((?:zero|oh|one|two|three|four|five|six|seven|eight|nine)(?:[\\s-]+(?:zero|oh|one|two|three|four|five|six|seven|eight|nine))*)\\b",
@@ -88,6 +96,10 @@ public enum Normalizer {
                 .map { $0.lowercased() == "oh" ? "0" : (digitWords[$0.lowercased()] ?? "") }.joined()
         }
         let codeOf = Dictionary(airlines.map { ($0.name.lowercased(), $0.code) }, uniquingKeysWith: { a, _ in a })
+        t = airlineThenCode.replace(in: t) { g in                       // 長榮航空公司PS188 → 長榮航空公司 BR188
+            let code = codeOf[g[1]!.lowercased()] ?? g[3]!
+            return "\(g[1]!)\(g[2] ?? "") \(code)\(g[4]!)"
+        }
         t = airlineNumber.replace(in: t) { g in                         // 日本航空8261便 → 日本航空 JL8261便
             "\(g[1]!) \(codeOf[g[1]!.lowercased()] ?? "")\(g[2]!)"
         }
