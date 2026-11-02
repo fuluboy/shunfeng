@@ -249,9 +249,14 @@ final class ListenerModel: ObservableObject {
         // Still marked as listening at launch: the last session ended without the user pressing stop
         // (swiped away, killed, phone restarted). Say so in the app too: tapping the watchdog notification
         // opens the app and removes the notification, so its text is easy to miss.
+        // Installing a new version also ends the old one; that is not an accident, so it isn't reported.
         if let since = UserDefaults.standard.object(forKey: Self.listeningSinceKey) as? Date {
-            EventLog.write("unexpected_end", ["listening_since": since.ISO8601Format()])
-            stopNotice = L("上次的聆聽意外中斷了（App 被關閉或手機重新開機），中斷後的廣播都沒有聽到。請按「開始聆聽」繼續。")
+            let updated = UserDefaults.standard.string(forKey: Self.listeningBuildKey) != Self.buildID
+            EventLog.write(updated ? "ended_by_update" : "unexpected_end", ["listening_since": since.ISO8601Format()])
+            if !updated {
+                stopNotice = L("上次聆聽意外中斷了（App 被關閉或手機重新開機），之後的廣播沒有聽到。",
+                               "Listening stopped unexpectedly (the app was closed or the phone restarted). Announcements after that weren't heard.")
+            }
             UserDefaults.standard.removeObject(forKey: Self.listeningSinceKey)
         }
         // Not listening now, so a watchdog left from that session would be a false alarm.
@@ -658,9 +663,17 @@ final class ListenerModel: ObservableObject {
     /// app, so if the app is swiped away, killed for memory or the phone restarts, nobody pushes it back
     /// and it goes off.
     static let listeningSinceKey = "listeningSince"
+    static let listeningBuildKey = "listeningBuild"
+    /// Changes with every install (the executable's date), to tell an update from the app being killed.
+    static let buildID: String = {
+        let date = Bundle.main.executableURL
+            .flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.modificationDate] as? Date }
+        return date.map { String($0.timeIntervalSince1970) } ?? "unknown"
+    }()
 
     private func armWatchdog() {
         UserDefaults.standard.set(Date(), forKey: Self.listeningSinceKey)
+        UserDefaults.standard.set(Self.buildID, forKey: Self.listeningBuildKey)
         watchdog?.cancel()
         // Battery use is part of whether this works for a whole airport stay: note it every 5 minutes.
         UIDevice.current.isBatteryMonitoringEnabled = true

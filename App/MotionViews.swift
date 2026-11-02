@@ -222,19 +222,22 @@ struct StatusBanner: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 12) {
-            GlyphBadge(symbol: symbol, color: tint)
-                .symbolEffect(.pulse, options: .repeating, isActive: kind == .connecting && !reduceMotion)
-            VStack(alignment: .leading, spacing: 2) {
+        // Title row with the button, then the explanation across the full width: beside a button it was
+        // squeezed into two or three words a line (phone test, Nov 2).
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                GlyphBadge(symbol: symbol, color: tint)
+                    .symbolEffect(.pulse, options: .repeating, isActive: kind == .connecting && !reduceMotion)
                 Text(title).font(Theme.label).foregroundStyle(isNeutral ? Theme.textPrimary : tint)
-                Text(subtitle).font(Theme.caption).foregroundStyle(Theme.textBody)
+                Spacer(minLength: 0)
+                if let actionTitle, let action {
+                    Button(actionTitle, action: action)
+                        .buttonStyle(SFButtonStyle(kind: isNeutral ? .secondary : .primary))
+                        .fixedSize()
+                }
             }
-            Spacer(minLength: 0)
-            if let actionTitle, let action {
-                Button(actionTitle, action: action)
-                    .buttonStyle(SFButtonStyle(kind: isNeutral ? .secondary : .primary))
-                    .fixedSize()
-            }
+            Text(subtitle).font(Theme.body).foregroundStyle(Theme.textBody)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -323,7 +326,7 @@ struct StatusBanner: View {
         switch kind {
         case .listening: L("停止")
         case .failed: L("重新連線")
-        case .stopped: L("開始聆聽")
+        // Stopped: the big start button right below does this; a second one here only crowded the card.
         default: nil
         }
     }
