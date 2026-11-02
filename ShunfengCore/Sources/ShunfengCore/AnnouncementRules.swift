@@ -28,6 +28,9 @@ public struct AnnouncementReading: Equatable, Sendable {
     public var destinations: Set<String> = []
     /// The normalized text the rules worked on.
     public var normalizedText: String
+    /// Only the user's flight number was heard, without the airline ("188班機"): the recognizer dropped
+    /// the letters, or listening began mid-announcement (phone test, Nov 2).
+    public var flightFromNumberOnly = false
 
     public var mentionsFlight: Bool { flight != nil }
 
@@ -35,6 +38,12 @@ public struct AnnouncementReading: Equatable, Sendable {
     /// different destination is not trusted: speech recognition can drop a digit (CI1000 → CI100).
     public func match(for user: UserFlight) -> FlightMatch {
         guard flight == AnnouncementRules.normalizeFlight(user.code) else { return .notMine }
+        if flightFromNumberOnly {
+            // Two weak signals: the number alone is "maybe"; the user's destination as well makes it sure.
+            // Another destination means it is most likely a different airline's flight.
+            guard let mine = user.destination.flatMap(Destinations.canonical), !destinations.isEmpty else { return .numberOnly }
+            return destinations.contains(mine) ? .mine : .notMine
+        }
         guard let mine = user.destination.flatMap(Destinations.canonical), !destinations.isEmpty,
               !destinations.contains(mine) else { return .mine }
         return .destinationConflict(heard: destinations.sorted())
@@ -63,6 +72,8 @@ public enum FlightMatch: Equatable, Sendable {
     /// Flight number matched but the announcement named another destination. Worth a gentle
     /// "might be about you, please check" instead of a full alert.
     case destinationConflict(heard: [String])
+    /// Only the number matched (no airline heard) and no destination to confirm it.
+    case numberOnly
     case notMine
 }
 
@@ -75,8 +86,14 @@ public enum AnnouncementRules {
 
     public static func read(_ transcript: String, myFlight: String) -> AnnouncementReading {
         let text = Normalizer.normalize(transcript)
-        let flight = targetFlight(in: text, myFlight: normalizeFlight(myFlight))
-        let context = flight.map { self.context(for: $0, in: text) } ?? text
+        let mine = normalizeFlight(myFlight)
+        var flight = targetFlight(in: text, myFlight: mine)
+        var numberOnly = false
+        if flight == nil, mentionsNumberOnly(of: mine, in: text) {
+            flight = mine
+            numberOnly = true
+        }
+        let context = numberOnly ? text : (flight.map { self.context(for: $0, in: text) } ?? text)
         let (gate, certain) = extractGate(from: context)
         return AnnouncementReading(
             flight: flight,
@@ -85,8 +102,17 @@ public enum AnnouncementRules {
             gateIsCertain: certain,
             time: extractTime(from: context),
             destinations: Destinations.heard(in: context),
-            normalizedText: text
+            normalizedText: text,
+            flightFromNumberOnly: numberOnly
         )
+    }
+
+    /// "188班機", "188便", "flight 188" with no flight code anywhere: the user's number without its letters.
+    static func mentionsNumberOnly(of flight: String, in text: String) -> Bool {
+        let digits = flight.drop(while: { $0.isLetter })
+        guard flight.count > digits.count, digits.count >= 2, digits.allSatisfy(\.isNumber) else { return false }
+        return Pattern("(?<![A-Za-z0-9])\(digits)(?!\\d)\\s*(?:號\\s*)?(?:班|便)|flight\\s+\(digits)(?!\\d)", caseInsensitive: true)
+            .contains(in: text)
     }
 
     /// Whether a flight-less announcement is the repeat of `previous` (for example the English version

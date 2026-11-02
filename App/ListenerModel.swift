@@ -975,6 +975,11 @@ final class ListenerModel: ObservableObject {
             certainty = .maybe
             note = L("聽到 \(reading.flight ?? "")，但廣播說的目的地是 \(heardPlaces.joined(separator: "、"))，跟你的不同。",
                      "Heard \(reading.flight ?? ""), but the announcement said \(heardPlaces.joined(separator: ", ")), not your destination.")
+        case .numberOnly:
+            certainty = .maybe
+            let digits = reading.flight.map { String($0.drop(while: { $0.isLetter })) } ?? ""
+            note = L("聽到 \(digits) 班機，但沒聽清楚航空公司，請確認是不是你的班機。",
+                     "Heard flight \(digits), but not the airline. Please check it's yours.")
         case .notMine:
             break
         }

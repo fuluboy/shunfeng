@@ -11,6 +11,22 @@ final class AnnouncementRulesTests: XCTestCase {
 
     // MARK: Gate changes
 
+    func testNumberWithoutAirline() {
+        // Listening began mid-announcement and the airline was lost (phone test, Nov 2).
+        let user = UserFlight(code: "BR188", destination: "Tokyo")
+        let r = AnnouncementRules.read("188班机，飞往东京羽田的旅客请注意，本班机登机门有五号更改为八号，请前往八号登机门候机。", myFlight: "BR188")
+        XCTAssertEqual(r.flight, "BR188")
+        XCTAssertEqual(r.event, .gateChange)
+        XCTAssertEqual(r.gate, "8")
+        XCTAssertEqual(r.match(for: user), .mine)                                   // destination confirms it
+        let noPlace = AnnouncementRules.read("188班機的旅客請注意，登機門改到8號。", myFlight: "BR188")
+        XCTAssertEqual(noPlace.match(for: user), .numberOnly)                       // number alone: maybe
+        let elsewhere = AnnouncementRules.read("188班機飛往大阪，登機門改到8號。", myFlight: "BR188")
+        XCTAssertEqual(elsewhere.match(for: user), .notMine)
+        XCTAssertEqual(AnnouncementRules.read("JL188班機飛往東京，登機門改到8號。", myFlight: "BR188").match(for: user), .notMine)
+        XCTAssertNil(AnnouncementRules.read("1880班機登機門改到8號。", myFlight: "BR188").flight)
+    }
+
     func testHyphenatedCodeAfterAirlineName() {
         // The airline name must not add its code again in front of a code spelled "B-R".
         let r = read("長榮B-R五十七班機，登機門改到C三。")

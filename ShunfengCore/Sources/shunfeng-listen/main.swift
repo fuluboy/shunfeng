@@ -43,7 +43,10 @@ if (3...5).contains(args.count), args[1] == "eval" {
         total += 1
         let r = AnnouncementRules.read(row[column("script")], myFlight: user.code)
         let notify: Bool
-        if case .mine = r.match(for: user) { notify = true } else { notify = false }
+        switch r.match(for: user) {
+        case .mine, .numberOnly: notify = true    // a "maybe" alert is still an alert
+        case .destinationConflict, .notMine: notify = false
+        }
         let expectNotify = row[column("should_notify")] == "True"
         // Only what the app shows the user is scored: for other flights, just that it stays quiet.
         var wrong: [String] = []
