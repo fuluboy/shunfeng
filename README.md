@@ -1,6 +1,8 @@
 # Shunfeng
 
-Shunfeng (順風, "fair winds") is an iPhone app for deaf and hard-of-hearing travelers. It listens to airport announcements for you and buzzes only when one is about your flight.
+Shunfeng is an iPhone app for deaf and hard-of-hearing travelers. It listens to airport announcements for you and buzzes only when one is about your flight.
+
+The name comes from Shunfeng'er (順風耳, "wind-following ears"), the god in Taiwanese folk belief who can hear anything, however far away. He stands beside Mazu, the goddess who protects people traveling by sea, and listens out for them. This app tries to do the same for travelers at the airport.
 
 Airports still tell you most things out loud. If your gate moves or your flight is delayed, the people around you hear it and start walking. If you can't hear it, you find out from the departure board, if you happen to look in time. Shunfeng keeps the phone's microphone on while you wait, works out which announcements are yours, and tells you with a vibration you can feel in your pocket and a notification you can read.
 
