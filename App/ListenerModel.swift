@@ -131,6 +131,10 @@ final class ListenerModel: ObservableObject {
             UserDefaults.standard.set(language.rawValue, forKey: AppLanguage.key)
             AppDelegate.registerNotificationActions()
             EventLog.write("language", ["language": language.rawValue])
+            // The "no flight data" message was written in the old language when it was looked up.
+            if language != oldValue, flightDataMessage != nil {
+                Task { await refreshFlightData(alertOnChange: false) }
+            }
         }
     }
     /// Whether the service can be reached right now. The start button waits for this.
