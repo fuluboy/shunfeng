@@ -1127,6 +1127,8 @@ final class ListenerModel: ObservableObject {
     }
 
     static let urgentRepeatPrefix = "urgent-repeat-"
+    /// The reminders scheduled for the latest urgent alert.
+    private var urgentRepeatIDs: [String] = []
 
     /// One notification per announcement, so a translation can replace its text when it arrives.
     static func alertID(_ id: UUID) -> String { "alert-" + id.uuidString }
@@ -1217,13 +1219,18 @@ final class ListenerModel: ObservableObject {
         center.add(UNNotificationRequest(identifier: identifier ?? UUID().uuidString, content: content, trigger: nil))
 
         guard urgent, UIApplication.shared.applicationState != .active else { return }
+        // The repeat of an announcement (Mandarin, then English) re-alerts: its reminders replace the
+        // earlier ones instead of adding to them (phone test, Nov 3: two reminders every 30 seconds).
+        center.removePendingNotificationRequests(withIdentifiers: urgentRepeatIDs)
+        urgentRepeatIDs = []
         for n in 1...4 {
             let again = content.mutableCopy() as! UNMutableNotificationContent
             again.title = L("提醒：\(title)", "Reminder: \(title)")
             again.sound = .default
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(30 * n), repeats: false)
-            center.add(UNNotificationRequest(identifier: Self.urgentRepeatPrefix + UUID().uuidString,
-                                             content: again, trigger: trigger))
+            let id = Self.urgentRepeatPrefix + UUID().uuidString
+            urgentRepeatIDs.append(id)
+            center.add(UNNotificationRequest(identifier: id, content: again, trigger: trigger))
         }
         EventLog.write("urgent_repeats_scheduled", ["title": title])
     }
