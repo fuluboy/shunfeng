@@ -28,6 +28,10 @@ final class AnnouncementRulesTests: XCTestCase {
         let r = AnnouncementRules.read("长荣航空188 班机飞往东京羽田的旅客请注意，本班机登机门由 5 号更换为 8 号，请前往 8 号登机门候机，", myFlight: "BR188")
         XCTAssertEqual(r.event, .gateChange)
         XCTAssertEqual(r.gate, "8")
+        // The verb itself can be misheard ("更改" as "登杆"); "gate from 5 ... to 8" is still a change.
+        let verbLost = AnnouncementRules.read("长荣航空188班机飞往东京羽田的旅客请注意，本班机登机门由五号登杆为八号，请前往八号登机门候机。", myFlight: "BR188")
+        XCTAssertEqual(verbLost.event, .gateChange)
+        XCTAssertEqual(verbLost.gate, "8")
     }
 
     func testNumberWithoutAirline() {
