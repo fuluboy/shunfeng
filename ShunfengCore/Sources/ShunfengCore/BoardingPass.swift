@@ -74,9 +74,9 @@ public struct MetaModelAPI: Sendable {
                 "date": field("MM-DD"),
                 "from": field("3-letter IATA airport code"),
                 "to": field("3-letter IATA airport code"),
-                "gate": field("Gate as printed"),
-                "boarding_time": field("HH:MM as printed"),
-                "departure_time": field("HH:MM, null if not printed"),
+                "gate": field("Gate as printed, or the handwritten correction if staff changed it"),
+                "boarding_time": field("HH:MM as printed, or the handwritten correction if staff changed it"),
+                "departure_time": field("HH:MM, or the handwritten correction if staff changed it; null if not printed"),
                 "seat": field("Seat as printed"),
                 "handwritten_changes": ["type": "string",
                                         "description": "Any handwritten correction to a printed value, or empty"],
@@ -94,8 +94,8 @@ public struct MetaModelAPI: Sendable {
             "reasoning_effort": "low",
             "messages": [
                 ["role": "system", "content": "Read this boarding pass photo for a deaf traveler's airport assistant. "
-                    + "Gray boxes may cover private details; ignore them. Report only what is printed; use null for "
-                    + "anything you can't read. The photo may be rotated."],
+                    + "Gray boxes may cover private details; ignore them. Report what is on the pass; where staff "
+                    + "handwrote a correction, the field gets the corrected value. Use null for anything you can't read. The photo may be rotated."],
                 ["role": "user", "content": [["type": "image_url",
                                               "image_url": ["url": "data:image/jpeg;base64," + jpeg.base64EncodedString()]]]],
             ],
