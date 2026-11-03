@@ -23,6 +23,13 @@ final class AnnouncementRulesTests: XCTestCase {
         XCTAssertEqual(codeshare.flight, "MU8634")
     }
 
+    func testGateReplacedWording() {
+        // Phone test, Nov 3: "更换" instead of "更改" left the event unknown and the alert a "maybe".
+        let r = AnnouncementRules.read("长荣航空188 班机飞往东京羽田的旅客请注意，本班机登机门由 5 号更换为 8 号，请前往 8 号登机门候机，", myFlight: "BR188")
+        XCTAssertEqual(r.event, .gateChange)
+        XCTAssertEqual(r.gate, "8")
+    }
+
     func testNumberWithoutAirline() {
         // Listening began mid-announcement and the airline was lost (phone test, Nov 2).
         let user = UserFlight(code: "BR188", destination: "Tokyo")

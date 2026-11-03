@@ -249,7 +249,7 @@ public enum AnnouncementRules {
         (.timeChange, Pattern("提前|提早|繰り上げ|早まり|moved\\s+(?:up|earlier)|(?:depart|leave)\\s+earlier|earlier\\s+than", caseInsensitive: true)),
         (.delay, Pattern("延後|延誤|延遲|遅れ|遅延|delay", caseInsensitive: true)),
         (.boarding, Pattern("開始登機|現在登機|搭乗(?:を)?開始|ご搭乗いただけます|now\\s+boarding|(?:may|can)\\s+(?:now\\s+)?board|begin\\s+boarding", caseInsensitive: true)),
-        (.gateChange, Pattern("登機門(?:由\\S+?)?(?:更改|改|調整)|改至|改到|改回|改為|仍為|(?:搭乗口|ゲート)(?:が|の)?変更|gate\\s+change|new\\s+gate|gate\\s+(?:has\\s+)?(?:been\\s+)?changed|changed\\s+to|now\\s+departing\\s+from\\s+gate|not\\s+gate|更正|correction", caseInsensitive: true)),
+        (.gateChange, Pattern("登機門(?:由.{0,8}?)?(?:更改|更換|更换|改|調整)|改至|改到|改回|改為|仍為|(?:搭乗口|ゲート)(?:が|の)?変更|gate\\s+change|new\\s+gate|gate\\s+(?:has\\s+)?(?:been\\s+)?changed|changed\\s+to|now\\s+departing\\s+from\\s+gate|not\\s+gate|更正|correction", caseInsensitive: true)),
     ]
 
     /// Looks at the flight's own clauses first, then the whole announcement (batch cancellations put
