@@ -162,6 +162,7 @@ struct ContentView: View {
                 if phase == .active {
                     model.cancelUrgentRepeats()
                     model.interruptionEnded()
+                    model.becameActive()
                     if model.state == .idle { Task { await model.checkConnection() } }
                 }
             }

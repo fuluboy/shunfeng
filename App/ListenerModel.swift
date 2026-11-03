@@ -578,6 +578,16 @@ final class ListenerModel: ObservableObject {
         return reachable
     }
 
+    /// The microphone couldn't start because the phone was locked; start it once the app is open.
+    private var startWhenActive = false
+
+    /// Called when the app comes to the front.
+    func becameActive() {
+        guard startWhenActive else { return }
+        startWhenActive = false
+        if state == .connecting { resume() }
+    }
+
     /// Back to listening after a dropped network or a failed connection.
     private func resume() {
         guard let key = apiKey else { return }
@@ -825,6 +835,16 @@ final class ListenerModel: ObservableObject {
                     self.interruptionBegan()
                     return
                 }
+                // Locked right after pressing start (phone test, Nov 3): iOS won't start the microphone in the
+                // background, and a retry wouldn't run until the app is opened. Say so now; start when opened.
+                if UIApplication.shared.applicationState == .background, self.state == .connecting {
+                    self.dropConnection()
+                    self.startWhenActive = true
+                    self.notify(title: L("Shunfeng 還沒開始聆聽", "Shunfeng isn't listening yet"),
+                                body: L("手機在麥克風啟動前就鎖上了。請打開 Shunfeng，它會自動開始聆聽。",
+                                        "The phone locked before the microphone started. Open Shunfeng and it will start listening."))
+                    return
+                }
                 // Right after a call the microphone may not be free yet: try again a few times.
                 if self.resumeAttempts < 3, self.state == .connecting {
                     self.resumeAttempts += 1
@@ -847,6 +867,7 @@ final class ListenerModel: ObservableObject {
     /// Called by the stop button: also forgets reconnect history.
     func userStop() {
         EventLog.write("stop", ["state": "\(state)"])
+        startWhenActive = false
         reconnects = []
         refresher?.cancel()
         departureWatch?.cancel()
